@@ -205,9 +205,11 @@ export default function AgentChat() {
       {/* Main content area */}
       <div className="flex flex-1 min-h-0">
         {/* Sidebar - Sessions */}
-        <aside className="w-64 border-r bg-muted/30 hidden md:flex md:flex-col flex-shrink-0">
-          <div className="p-3 overflow-y-auto flex-1">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-2">Sessões</h3>
+        <aside className="w-64 border-r bg-muted/30 hidden md:flex md:flex-col flex-shrink-0 min-h-0">
+          <div className="p-3 pb-1 flex-shrink-0">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Sessões</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 pb-3">
             <div className="space-y-1">
               {activeSessions.length === 0 ? (
                 <p className="text-xs text-muted-foreground px-2 py-4 text-center">

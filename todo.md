@@ -22,3 +22,4 @@
 - [x] Atualizar painel admin para gerenciar os 4 níveis e visualizar créditos
 - [x] Escrever testes para o sistema de créditos e autenticação
 - [x] Bug: scroll não funciona na página de chat dos agentes - usuário não consegue rolar para ver toda a conversa
+- [x] Adicionar overflow/scroll na sidebar de sessões do chat dos agentes
