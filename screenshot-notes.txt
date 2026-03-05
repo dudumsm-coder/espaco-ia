@@ -1,10 +1,11 @@
-Screenshot review:
-- Hero section looks great with gradient blue-purple background
-- Navigation shows: Início, Planos, Meu Perfil, Admin (admin user logged in)
-- User name "Eduardo Henrique" and Sair button visible
-- Hero text "Transforme seu negócio com Inteligência Artificial" renders well
-- Subtitle and CTA buttons (Explorar Agentes, Ver Planos) visible
-- Need to scroll down to see the 6 agent cards section
-- TypeScript: No errors
-- LSP: No errors
-- Dependencies: OK
+Screenshot 2 - After role/credits update:
+- Home page loads correctly with hero section
+- Navbar shows: Início, Planos, Meu Perfil, Admin links
+- User "Eduardo Henrique" shown with ADM badge in red
+- "Ilimitado" credits badge shown with sparkles icon
+- Logout button visible
+- Hero section: gradient blue-to-purple background
+- Title: "Transforme seu negócio com Inteligência Artificial"
+- Everything looks clean and professional
+- TypeScript: No errors, LSP: No errors, Dependencies: OK
+- Need to create Login page and verify backend routes

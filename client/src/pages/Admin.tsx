@@ -7,25 +7,34 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { getLoginUrl } from "@/const";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { AGENTS, AGENT_SLUGS } from "@shared/types";
 import {
-  Sparkles, ArrowLeft, Users, BarChart3, Crown, Settings,
-  Plus, Trash2, Edit, Shield, Activity,
+  Sparkles, ArrowLeft, Users, BarChart3, Crown, Coins,
+  Plus, Trash2, Shield, Activity, Loader2,
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 
+const roleOptions = [
+  { value: "admin", label: "Administrador", color: "bg-red-100 text-red-700" },
+  { value: "editor", label: "Editor", color: "bg-purple-100 text-purple-700" },
+  { value: "premium", label: "Premium", color: "bg-amber-100 text-amber-700" },
+  { value: "free", label: "Gratuito", color: "bg-gray-100 text-gray-600" },
+  { value: "user", label: "Usuário", color: "bg-blue-100 text-blue-700" },
+];
+
 export default function Admin() {
   const { user, isAuthenticated, loading } = useAuth();
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Sparkles className="h-12 w-12 animate-pulse text-primary" /></div>;
+    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
-  if (!isAuthenticated || user?.role !== "admin") {
+  if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "editor")) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="max-w-md w-full mx-4 text-center">
@@ -33,10 +42,10 @@ export default function Admin() {
             <Shield className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
             <h2 className="text-2xl font-bold mb-2">Acesso Restrito</h2>
             <p className="text-muted-foreground mb-6">
-              {!isAuthenticated ? "Faça login como administrador." : "Você não tem permissão de administrador."}
+              {!isAuthenticated ? "Faça login como administrador." : "Você não tem permissão de acesso."}
             </p>
             {!isAuthenticated ? (
-              <Button asChild className="w-full"><a href={getLoginUrl()}>Entrar</a></Button>
+              <Button asChild className="w-full"><Link href="/login">Entrar</Link></Button>
             ) : (
               <Button asChild className="w-full"><Link href="/">Voltar</Link></Button>
             )}
@@ -46,25 +55,30 @@ export default function Admin() {
     );
   }
 
-  return <AdminDashboard />;
+  return <AdminDashboard isAdmin={user?.role === "admin"} />;
 }
 
-function AdminDashboard() {
-  const { data: metrics } = trpc.admin.getMetrics.useQuery();
-  const { data: users, refetch: refetchUsers } = trpc.admin.getUsers.useQuery();
-  const { data: levels, refetch: refetchLevels } = trpc.accessLevels.getAll.useQuery();
-  const { data: subscriptions } = trpc.admin.getAllSubscriptions.useQuery();
+function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
+  const { data: metrics } = trpc.admin.getMetrics.useQuery(undefined, { enabled: isAdmin });
+  const { data: users, refetch: refetchUsers } = trpc.admin.getUsers.useQuery(undefined, { enabled: isAdmin });
+  const { data: levels, refetch: refetchLevels } = trpc.accessLevels.getAll.useQuery(undefined, { enabled: isAdmin });
 
   const createLevelMutation = trpc.accessLevels.create.useMutation();
-  const updateLevelMutation = trpc.accessLevels.update.useMutation();
   const deleteLevelMutation = trpc.accessLevels.delete.useMutation();
   const updateRoleMutation = trpc.admin.updateUserRole.useMutation();
+  const grantCreditsMutation = trpc.admin.grantCredits.useMutation();
+  const seedLevelsMutation = trpc.admin.seedLevels.useMutation();
 
   const [showLevelForm, setShowLevelForm] = useState(false);
+  const [grantCreditsUserId, setGrantCreditsUserId] = useState<number | null>(null);
+  const [grantCreditsAmount, setGrantCreditsAmount] = useState(100);
+  const [grantCreditsDesc, setGrantCreditsDesc] = useState("");
   const [levelForm, setLevelForm] = useState({
     slug: "", name: "", description: "",
     priceMonthly: 0, priceYearly: 0,
+    monthlyCredits: 0,
     maxSessionsPerMonth: 5, maxMessagesPerSession: 20,
+    maxTokensPerMessage: 4096,
     allowedAgents: [] as string[],
     features: {} as Record<string, boolean>,
     sortOrder: 0, active: true, highlighted: false,
@@ -76,7 +90,7 @@ function AdminDashboard() {
       await createLevelMutation.mutateAsync(levelForm);
       toast.success("Nível criado com sucesso!");
       setShowLevelForm(false);
-      setLevelForm({ slug: "", name: "", description: "", priceMonthly: 0, priceYearly: 0, maxSessionsPerMonth: 5, maxMessagesPerSession: 20, allowedAgents: [], features: {}, sortOrder: 0, active: true, highlighted: false });
+      setLevelForm({ slug: "", name: "", description: "", priceMonthly: 0, priceYearly: 0, monthlyCredits: 0, maxSessionsPerMonth: 5, maxMessagesPerSession: 20, maxTokensPerMessage: 4096, allowedAgents: [], features: {}, sortOrder: 0, active: true, highlighted: false });
       refetchLevels();
     } catch (error: any) {
       toast.error(error.message || "Erro ao criar nível");
@@ -92,13 +106,41 @@ function AdminDashboard() {
     } catch { toast.error("Erro ao excluir"); }
   };
 
-  const handleToggleRole = async (userId: number, currentRole: string) => {
-    const newRole = currentRole === "admin" ? "user" : "admin";
+  const handleChangeRole = async (userId: number, newRole: string) => {
     try {
-      await updateRoleMutation.mutateAsync({ userId, role: newRole as "user" | "admin" });
-      toast.success(`Papel alterado para ${newRole}`);
+      await updateRoleMutation.mutateAsync({ userId, role: newRole as any });
+      toast.success(`Papel alterado para ${roleOptions.find(r => r.value === newRole)?.label || newRole}`);
       refetchUsers();
     } catch { toast.error("Erro ao alterar papel"); }
+  };
+
+  const handleGrantCredits = async () => {
+    if (!grantCreditsUserId || grantCreditsAmount <= 0) return;
+    try {
+      const result = await grantCreditsMutation.mutateAsync({
+        userId: grantCreditsUserId,
+        credits: grantCreditsAmount,
+        description: grantCreditsDesc || undefined,
+      });
+      toast.success(`Créditos concedidos! Novo saldo: ${result.newBalance}`);
+      setGrantCreditsUserId(null);
+      setGrantCreditsAmount(100);
+      setGrantCreditsDesc("");
+      refetchUsers();
+    } catch { toast.error("Erro ao conceder créditos"); }
+  };
+
+  const handleSeedLevels = async () => {
+    try {
+      await seedLevelsMutation.mutateAsync();
+      toast.success("Níveis padrão criados!");
+      refetchLevels();
+    } catch { toast.error("Erro ao criar níveis padrão"); }
+  };
+
+  const getRoleBadge = (role: string) => {
+    const r = roleOptions.find(o => o.value === role);
+    return <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r?.color || "bg-gray-100 text-gray-600"}`}>{r?.label || role}</span>;
   };
 
   return (
@@ -119,98 +161,192 @@ function AdminDashboard() {
       <main className="flex-1 py-8">
         <div className="container max-w-7xl">
           <h1 className="text-3xl font-bold mb-2">Painel Administrativo</h1>
-          <p className="text-muted-foreground mb-8">Gerencie planos, usuários e métricas da plataforma.</p>
+          <p className="text-muted-foreground mb-8">Gerencie planos, usuários, créditos e métricas da plataforma.</p>
 
           {/* Metrics */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <Users className="h-5 w-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Usuários</p>
-                    <p className="text-2xl font-bold">{metrics?.totalUsers ?? 0}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                    <Activity className="h-5 w-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Sessões Totais</p>
-                    <p className="text-2xl font-bold">{metrics?.totalSessions ?? 0}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center">
-                    <Crown className="h-5 w-5 text-violet-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Assinaturas Ativas</p>
-                    <p className="text-2xl font-bold">{metrics?.activeSubscriptions ?? 0}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                    <BarChart3 className="h-5 w-5 text-amber-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Agentes Ativos</p>
-                    <p className="text-2xl font-bold">{metrics?.agentUsage?.length ?? 0}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Agent Usage */}
-          {metrics?.agentUsage && metrics.agentUsage.length > 0 && (
-            <Card className="mb-8">
-              <CardHeader><CardTitle className="text-lg">Uso por Agente</CardTitle></CardHeader>
-              <CardContent>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {metrics.agentUsage.map((a) => (
-                    <div key={a.agentSlug} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <span className="text-sm font-medium">{AGENTS[a.agentSlug as keyof typeof AGENTS]?.name || a.agentSlug}</span>
-                      <Badge variant="secondary">{a.totalSessions} sessões</Badge>
+          {isAdmin && metrics && (
+            <>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><Users className="h-5 w-5 text-blue-600" /></div>
+                      <div><p className="text-sm text-muted-foreground">Usuários</p><p className="text-2xl font-bold">{metrics.totalUsers}</p></div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center"><Activity className="h-5 w-5 text-emerald-600" /></div>
+                      <div><p className="text-sm text-muted-foreground">Sessões Totais</p><p className="text-2xl font-bold">{metrics.totalSessions}</p></div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center"><Crown className="h-5 w-5 text-violet-600" /></div>
+                      <div><p className="text-sm text-muted-foreground">Assinaturas Ativas</p><p className="text-2xl font-bold">{metrics.activeSubscriptions}</p></div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center"><BarChart3 className="h-5 w-5 text-amber-600" /></div>
+                      <div><p className="text-sm text-muted-foreground">Agentes Ativos</p><p className="text-2xl font-bold">{metrics.agentUsage?.length ?? 0}</p></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Role distribution */}
+              {metrics.roleStats && metrics.roleStats.length > 0 && (
+                <Card className="mb-8">
+                  <CardHeader><CardTitle className="text-lg">Distribuição por Papel</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-3">
+                      {metrics.roleStats.map((rs: any) => (
+                        <div key={rs.role} className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg">
+                          {getRoleBadge(rs.role)}
+                          <span className="text-lg font-bold">{rs.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Agent Usage */}
+              {metrics.agentUsage && metrics.agentUsage.length > 0 && (
+                <Card className="mb-8">
+                  <CardHeader><CardTitle className="text-lg">Uso por Agente</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {metrics.agentUsage.map((a: any) => (
+                        <div key={a.agentSlug} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                          <div>
+                            <span className="text-sm font-medium">{AGENTS[a.agentSlug as keyof typeof AGENTS]?.name || a.agentSlug}</span>
+                            <p className="text-xs text-muted-foreground">{Number(a.totalTokens).toLocaleString("pt-BR")} tokens · {a.totalCredits} créditos</p>
+                          </div>
+                          <Badge variant="secondary">{a.totalSessions} sessões</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
 
-          <Tabs defaultValue="levels" className="space-y-6">
-            <TabsList>
+          <Tabs defaultValue={isAdmin ? "users" : "levels"} className="space-y-6">
+            <TabsList className="flex-wrap">
+              {isAdmin && <TabsTrigger value="users" className="gap-2"><Users className="h-4 w-4" />Usuários</TabsTrigger>}
               <TabsTrigger value="levels" className="gap-2"><Crown className="h-4 w-4" />Níveis de Acesso</TabsTrigger>
-              <TabsTrigger value="users" className="gap-2"><Users className="h-4 w-4" />Usuários</TabsTrigger>
             </TabsList>
+
+            {/* Users Tab */}
+            {isAdmin && (
+              <TabsContent value="users">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Usuários ({users?.length ?? 0})</CardTitle>
+                    <CardDescription>Gerencie papéis e créditos dos usuários.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {!users || users.length === 0 ? (
+                      <p className="text-center py-8 text-muted-foreground">Nenhum usuário registrado.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {users.map((u) => (
+                          <div key={u.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                                <span className="text-sm font-semibold text-primary">{(u.name || "U")[0].toUpperCase()}</span>
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium">{u.name || "Sem nome"}</p>
+                                  {getRoleBadge(u.role)}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {u.email || "Sem email"} · {u.creditsBalance} créditos · {u.totalTokensUsed.toLocaleString("pt-BR")} tokens
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {/* Role selector */}
+                              <Select value={u.role} onValueChange={(v) => handleChangeRole(u.id, v)}>
+                                <SelectTrigger className="w-[140px] h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {roleOptions.map(r => (
+                                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+
+                              {/* Grant credits */}
+                              <Dialog open={grantCreditsUserId === u.id} onOpenChange={(open) => { if (!open) setGrantCreditsUserId(null); }}>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setGrantCreditsUserId(u.id)}>
+                                    <Coins className="h-3 w-3 mr-1" />
+                                    Créditos
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <DialogHeader>
+                                    <DialogTitle>Conceder Créditos para {u.name || "Usuário"}</DialogTitle>
+                                  </DialogHeader>
+                                  <div className="space-y-4 pt-4">
+                                    <p className="text-sm text-muted-foreground">Saldo atual: <strong>{u.creditsBalance}</strong> créditos</p>
+                                    <div className="space-y-2">
+                                      <Label>Quantidade de créditos</Label>
+                                      <Input type="number" value={grantCreditsAmount} onChange={e => setGrantCreditsAmount(Number(e.target.value))} min={1} />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label>Descrição (opcional)</Label>
+                                      <Input value={grantCreditsDesc} onChange={e => setGrantCreditsDesc(e.target.value)} placeholder="Ex: Bônus de boas-vindas" />
+                                    </div>
+                                    <Button onClick={handleGrantCredits} disabled={grantCreditsMutation.isPending} className="w-full">
+                                      <Coins className="h-4 w-4 mr-2" />
+                                      Conceder {grantCreditsAmount} Créditos
+                                    </Button>
+                                  </div>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
 
             {/* Access Levels Tab */}
             <TabsContent value="levels" className="space-y-6">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center flex-wrap gap-3">
                 <h2 className="text-xl font-semibold">Níveis de Acesso</h2>
-                <Button onClick={() => setShowLevelForm(!showLevelForm)}>
-                  <Plus className="h-4 w-4 mr-1.5" />
-                  Novo Nível
-                </Button>
+                <div className="flex gap-2">
+                  {isAdmin && (!levels || levels.length === 0) && (
+                    <Button variant="outline" onClick={handleSeedLevels} disabled={seedLevelsMutation.isPending}>
+                      Criar Níveis Padrão
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button onClick={() => setShowLevelForm(!showLevelForm)}>
+                      <Plus className="h-4 w-4 mr-1.5" />
+                      Novo Nível
+                    </Button>
+                  )}
+                </div>
               </div>
 
-              {showLevelForm && (
+              {showLevelForm && isAdmin && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Criar Novo Nível</CardTitle>
@@ -232,7 +368,7 @@ function AdminDashboard() {
                         <Label>Descrição</Label>
                         <Textarea value={levelForm.description} onChange={e => setLevelForm({...levelForm, description: e.target.value})} placeholder="Descrição do plano..." />
                       </div>
-                      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div className="space-y-2">
                           <Label>Preço Mensal (centavos)</Label>
                           <Input type="number" value={levelForm.priceMonthly} onChange={e => setLevelForm({...levelForm, priceMonthly: Number(e.target.value)})} />
@@ -242,12 +378,22 @@ function AdminDashboard() {
                           <Input type="number" value={levelForm.priceYearly} onChange={e => setLevelForm({...levelForm, priceYearly: Number(e.target.value)})} />
                         </div>
                         <div className="space-y-2">
+                          <Label>Créditos Mensais</Label>
+                          <Input type="number" value={levelForm.monthlyCredits} onChange={e => setLevelForm({...levelForm, monthlyCredits: Number(e.target.value)})} />
+                        </div>
+                      </div>
+                      <div className="grid sm:grid-cols-3 gap-4">
+                        <div className="space-y-2">
                           <Label>Sessões/mês (-1 = ilimitado)</Label>
                           <Input type="number" value={levelForm.maxSessionsPerMonth} onChange={e => setLevelForm({...levelForm, maxSessionsPerMonth: Number(e.target.value)})} />
                         </div>
                         <div className="space-y-2">
                           <Label>Msgs/sessão (-1 = ilimitado)</Label>
                           <Input type="number" value={levelForm.maxMessagesPerSession} onChange={e => setLevelForm({...levelForm, maxMessagesPerSession: Number(e.target.value)})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Tokens/msg (-1 = ilimitado)</Label>
+                          <Input type="number" value={levelForm.maxTokensPerMessage} onChange={e => setLevelForm({...levelForm, maxTokensPerMessage: Number(e.target.value)})} />
                         </div>
                       </div>
                       <div className="space-y-2">
@@ -312,62 +458,27 @@ function AdminDashboard() {
                           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                             <span>Mensal: R$ {(level.priceMonthly / 100).toFixed(2)}</span>
                             <span>Anual: R$ {(level.priceYearly / 100).toFixed(2)}</span>
-                            <span>Sessões: {level.maxSessionsPerMonth === -1 ? "Ilimitado" : level.maxSessionsPerMonth}/mês</span>
-                            <span>Msgs: {level.maxMessagesPerSession === -1 ? "Ilimitado" : level.maxMessagesPerSession}/sessão</span>
+                            <span>Créditos: {level.monthlyCredits === -1 ? "Ilimitado" : `${level.monthlyCredits}/mês`}</span>
+                            <span>Sessões: {level.maxSessionsPerMonth === -1 ? "Ilimitado" : `${level.maxSessionsPerMonth}/mês`}</span>
+                            <span>Msgs: {level.maxMessagesPerSession === -1 ? "Ilimitado" : `${level.maxMessagesPerSession}/sessão`}</span>
                             <span>Agentes: {(level.allowedAgents as string[]).includes("*") ? "Todos" : (level.allowedAgents as string[]).join(", ")}</span>
                           </div>
                         </div>
-                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDeleteLevel(level.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {isAdmin && (
+                          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDeleteLevel(level.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
                 ))}
                 {(!levels || levels.length === 0) && (
                   <div className="text-center py-8 text-muted-foreground">
-                    Nenhum nível de acesso criado. Clique em "Novo Nível" para começar.
+                    Nenhum nível de acesso criado. Clique em "Criar Níveis Padrão" para começar.
                   </div>
                 )}
               </div>
-            </TabsContent>
-
-            {/* Users Tab */}
-            <TabsContent value="users">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Usuários ({users?.length ?? 0})</CardTitle>
-                  <CardDescription>Gerencie os usuários da plataforma e seus papéis.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {!users || users.length === 0 ? (
-                    <p className="text-center py-8 text-muted-foreground">Nenhum usuário registrado.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {users.map((u) => (
-                        <div key={u.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                              <span className="text-sm font-semibold text-primary">{(u.name || "U")[0].toUpperCase()}</span>
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium">{u.name || "Sem nome"}</p>
-                              <p className="text-xs text-muted-foreground">{u.email || "Sem email"}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant={u.role === "admin" ? "default" : "secondary"}>{u.role}</Badge>
-                            <Button variant="ghost" size="sm" onClick={() => handleToggleRole(u.id, u.role)}>
-                              <Shield className="h-3.5 w-3.5 mr-1" />
-                              {u.role === "admin" ? "Remover Admin" : "Tornar Admin"}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
             </TabsContent>
           </Tabs>
         </div>

@@ -3,24 +3,33 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import {
   Sparkles, ArrowLeft, User, Crown, CreditCard, History,
-  MessageSquare, Calendar,
+  MessageSquare, Coins, TrendingDown, TrendingUp, Loader2,
 } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
+
+const roleLabels: Record<string, { label: string; color: string }> = {
+  admin: { label: "Administrador", color: "bg-red-100 text-red-700 border-red-200" },
+  editor: { label: "Editor", color: "bg-purple-100 text-purple-700 border-purple-200" },
+  premium: { label: "Premium", color: "bg-amber-100 text-amber-700 border-amber-200" },
+  free: { label: "Gratuito", color: "bg-gray-100 text-gray-600 border-gray-200" },
+  user: { label: "Usuário", color: "bg-blue-100 text-blue-700 border-blue-200" },
+};
 
 export default function Profile() {
   const { user, isAuthenticated, loading } = useAuth();
   const { data: subscription, refetch: refetchSub } = trpc.subscriptions.getMy.useQuery(undefined, { enabled: isAuthenticated });
   const { data: payments } = trpc.profile.getPayments.useQuery(undefined, { enabled: isAuthenticated });
   const { data: sessions } = trpc.agents.getSessions.useQuery({}, { enabled: isAuthenticated });
+  const { data: creditData } = trpc.credits.getBalance.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: transactions } = trpc.credits.getTransactions.useQuery(undefined, { enabled: isAuthenticated });
   const cancelMutation = trpc.subscriptions.cancel.useMutation();
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Sparkles className="h-12 w-12 animate-pulse text-primary" /></div>;
+    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
   if (!isAuthenticated) {
@@ -31,7 +40,7 @@ export default function Profile() {
             <User className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
             <h2 className="text-2xl font-bold mb-2">Faça login</h2>
             <p className="text-muted-foreground mb-6">Entre para ver seu perfil.</p>
-            <Button asChild className="w-full"><a href={getLoginUrl()}>Entrar</a></Button>
+            <Button asChild className="w-full"><Link href="/login">Entrar</Link></Button>
           </CardContent>
         </Card>
       </div>
@@ -51,8 +60,8 @@ export default function Profile() {
 
   const formatPrice = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
   const formatDate = (date: Date | string) => new Date(date).toLocaleDateString("pt-BR");
-
   const activeSessions = sessions?.filter(s => s.status !== "archived") || [];
+  const roleBadge = user?.role ? roleLabels[user.role] || roleLabels.user : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-muted/30">
@@ -77,17 +86,112 @@ export default function Profile() {
               <User className="h-8 w-8 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">{user?.name || "Usuário"}</h1>
+              <div className="flex items-center gap-2 mb-1">
+                <h1 className="text-2xl font-bold">{user?.name || "Usuário"}</h1>
+                {roleBadge && (
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${roleBadge.color}`}>
+                    {roleBadge.label}
+                  </span>
+                )}
+              </div>
               <p className="text-muted-foreground">{user?.email}</p>
             </div>
           </div>
 
-          <Tabs defaultValue="subscription" className="space-y-6">
-            <TabsList>
+          {/* Quick stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Coins className="h-4 w-4 text-amber-500" />
+                  <span className="text-xs text-muted-foreground">Créditos</span>
+                </div>
+                <p className="text-2xl font-bold">
+                  {creditData?.isAdmin ? "∞" : (creditData?.balance ?? 0)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingDown className="h-4 w-4 text-blue-500" />
+                  <span className="text-xs text-muted-foreground">Tokens Usados</span>
+                </div>
+                <p className="text-2xl font-bold">{(creditData?.totalTokensUsed ?? 0).toLocaleString("pt-BR")}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="h-4 w-4 text-red-500" />
+                  <span className="text-xs text-muted-foreground">Créditos Gastos</span>
+                </div>
+                <p className="text-2xl font-bold">{creditData?.totalCreditsSpent ?? 0}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare className="h-4 w-4 text-emerald-500" />
+                  <span className="text-xs text-muted-foreground">Sessões</span>
+                </div>
+                <p className="text-2xl font-bold">{activeSessions.length}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Tabs defaultValue="credits" className="space-y-6">
+            <TabsList className="flex-wrap">
+              <TabsTrigger value="credits" className="gap-2"><Coins className="h-4 w-4" />Créditos</TabsTrigger>
               <TabsTrigger value="subscription" className="gap-2"><Crown className="h-4 w-4" />Assinatura</TabsTrigger>
               <TabsTrigger value="sessions" className="gap-2"><MessageSquare className="h-4 w-4" />Sessões</TabsTrigger>
               <TabsTrigger value="payments" className="gap-2"><CreditCard className="h-4 w-4" />Pagamentos</TabsTrigger>
             </TabsList>
+
+            {/* Credits Tab */}
+            <TabsContent value="credits">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Coins className="h-5 w-5 text-amber-500" />
+                    Histórico de Créditos
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {creditData?.isAdmin && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4 text-sm text-red-800">
+                      <strong>Administrador:</strong> Você tem créditos ilimitados. O consumo de tokens é registrado mas não debita créditos.
+                    </div>
+                  )}
+                  {!transactions || transactions.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Coins className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                      <p className="text-muted-foreground">Nenhuma transação de créditos ainda.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {transactions.map((tx) => (
+                        <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
+                          <div>
+                            <p className="text-sm font-medium">{tx.description || tx.type}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDate(tx.createdAt)}
+                              {tx.tokensConsumed ? ` · ${tx.tokensConsumed} tokens` : ""}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-sm font-bold ${tx.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                              {tx.amount >= 0 ? "+" : ""}{tx.amount}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Saldo: {tx.balanceAfter}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
             {/* Subscription Tab */}
             <TabsContent value="subscription">
@@ -105,7 +209,7 @@ export default function Profile() {
                         <div>
                           <h3 className="font-semibold text-lg">{(subscription as any).accessLevel?.name || "Plano"}</h3>
                           <p className="text-sm text-muted-foreground">
-                            {subscription.billingCycle === "monthly" ? "Mensal" : "Anual"} &middot; Status: {" "}
+                            {subscription.billingCycle === "monthly" ? "Mensal" : "Anual"} · Status:{" "}
                             <Badge variant={subscription.status === "active" ? "default" : "secondary"}>
                               {subscription.status === "active" ? "Ativo" : subscription.status}
                             </Badge>
@@ -172,7 +276,8 @@ export default function Profile() {
                               <div>
                                 <p className="text-sm font-medium">{session.title || "Sessão sem título"}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {session.agentSlug} &middot; {formatDate(session.createdAt)}
+                                  {session.agentSlug} · {formatDate(session.createdAt)}
+                                  {session.totalTokensUsed > 0 && ` · ${session.totalTokensUsed} tokens`}
                                 </p>
                               </div>
                             </div>

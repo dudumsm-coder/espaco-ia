@@ -3,15 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { AGENTS, type AgentSlug } from "@shared/types";
 import {
   Mic, Lightbulb, Search, ClipboardList, FileText, Layers,
   Sparkles, Send, Bot, User, ArrowLeft, Plus, MessageSquare, Trash2,
+  Coins, AlertTriangle,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "wouter";
+import { Link, useParams, useLocation } from "wouter";
 import { Streamdown } from "streamdown";
 import { toast } from "sonner";
 
@@ -33,9 +33,9 @@ export default function AgentChat() {
   const slug = params.slug as AgentSlug;
   const agent = AGENTS[slug];
   const { user, isAuthenticated, loading } = useAuth();
+  const [, setLocation] = useLocation();
   const [message, setMessage] = useState("");
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const colors = colorMap[agent?.color] || colorMap.blue;
@@ -44,20 +44,25 @@ export default function AgentChat() {
   const createSessionMutation = trpc.agents.createSession.useMutation();
   const sendMessageMutation = trpc.agents.sendMessage.useMutation();
   const deleteSessionMutation = trpc.agents.deleteSession.useMutation();
+  const utils = trpc.useUtils();
 
   const { data: sessions, refetch: refetchSessions } = trpc.agents.getSessions.useQuery(
     { agentSlug: slug },
     { enabled: isAuthenticated && !!slug }
   );
 
-  const { data: messages, refetch: refetchMessages } = trpc.agents.getMessages.useQuery(
+  const { data: chatMessages, refetch: refetchMessages } = trpc.agents.getMessages.useQuery(
     { sessionId: currentSessionId! },
     { enabled: currentSessionId !== null }
   );
 
+  const { data: creditData } = trpc.credits.getBalance.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [chatMessages]);
 
   if (!agent) {
     return (
@@ -89,7 +94,7 @@ export default function AgentChat() {
             </div>
             <h2 className="text-2xl font-bold mb-2">{agent.name}</h2>
             <p className="text-muted-foreground mb-6">Faça login para conversar com este agente.</p>
-            <Button asChild className="w-full"><a href={getLoginUrl()}>Entrar</a></Button>
+            <Button asChild className="w-full"><Link href="/login">Entrar / Criar Conta</Link></Button>
           </CardContent>
         </Card>
       </div>
@@ -111,8 +116,13 @@ export default function AgentChat() {
     const userMessage = message;
     setMessage("");
     try {
-      await sendMessageMutation.mutateAsync({ sessionId: currentSessionId, message: userMessage });
+      const result = await sendMessageMutation.mutateAsync({ sessionId: currentSessionId, message: userMessage });
       refetchMessages();
+      // Refresh credits after usage
+      utils.credits.getBalance.invalidate();
+      if (result.tokensUsed > 0 && result.creditsCharged > 0) {
+        toast.info(`${result.tokensUsed} tokens usados (${result.creditsCharged} créditos)`, { duration: 3000 });
+      }
     } catch (error: any) {
       toast.error(error.message || "Erro ao enviar mensagem");
     }
@@ -130,6 +140,7 @@ export default function AgentChat() {
   };
 
   const activeSessions = sessions?.filter(s => s.status !== "archived") || [];
+  const lowCredits = creditData && !creditData.isAdmin && creditData.balance < 50;
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -150,15 +161,48 @@ export default function AgentChat() {
             <p className="text-xs text-muted-foreground hidden sm:block">{agent.description.substring(0, 60)}...</p>
           </div>
         </div>
+
+        {/* Credits indicator */}
+        {creditData && (
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${
+            creditData.isAdmin
+              ? "bg-red-50 border-red-200 text-red-700"
+              : lowCredits
+                ? "bg-amber-50 border-amber-300 text-amber-700"
+                : "bg-emerald-50 border-emerald-200 text-emerald-700"
+          }`}>
+            {creditData.isAdmin ? (
+              <>
+                <Sparkles className="h-3 w-3" />
+                Ilimitado
+              </>
+            ) : (
+              <>
+                <Coins className="h-3 w-3" />
+                {creditData.balance} créditos
+              </>
+            )}
+          </div>
+        )}
+
         <Button variant="outline" size="sm" onClick={handleNewSession} disabled={createSessionMutation.isPending}>
           <Plus className="h-4 w-4 mr-1.5" />
-          Nova Sessão
+          <span className="hidden sm:inline">Nova Sessão</span>
         </Button>
       </header>
 
+      {/* Low credits warning */}
+      {lowCredits && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>Seus créditos estão baixos ({creditData.balance} restantes).</span>
+          <Link href="/planos" className="font-semibold underline ml-1">Fazer upgrade</Link>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - Sessions */}
-        <aside className={`${sidebarOpen ? 'w-64' : 'w-0'} border-r bg-muted/30 overflow-hidden transition-all duration-200 hidden md:block`}>
+        <aside className="w-64 border-r bg-muted/30 overflow-hidden transition-all duration-200 hidden md:block">
           <div className="p-3">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-2">Sessões</h3>
             <div className="space-y-1">
@@ -193,7 +237,6 @@ export default function AgentChat() {
         {/* Chat Area */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {currentSessionId === null ? (
-            /* Empty state */
             <div className="flex-1 flex items-center justify-center p-8">
               <div className="text-center max-w-md">
                 <div className={`w-20 h-20 rounded-2xl ${colors.iconBg} flex items-center justify-center mx-auto mb-6`}>
@@ -212,7 +255,7 @@ export default function AgentChat() {
               {/* Messages */}
               <ScrollArea className="flex-1 p-4 lg:p-6">
                 <div className="max-w-3xl mx-auto space-y-4">
-                  {(!messages || messages.length === 0) && !sendMessageMutation.isPending && (
+                  {(!chatMessages || chatMessages.length === 0) && !sendMessageMutation.isPending && (
                     <div className="text-center py-12">
                       <div className={`w-14 h-14 rounded-xl ${colors.iconBg} flex items-center justify-center mx-auto mb-4`}>
                         <Icon className={`h-7 w-7 ${colors.text}`} />
@@ -222,7 +265,7 @@ export default function AgentChat() {
                     </div>
                   )}
 
-                  {messages?.map((msg) => (
+                  {chatMessages?.map((msg) => (
                     <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                       {msg.role === "assistant" && (
                         <div className={`w-8 h-8 rounded-lg ${colors.iconBg} flex items-center justify-center shrink-0 mt-1`}>
@@ -240,6 +283,14 @@ export default function AgentChat() {
                           </div>
                         ) : (
                           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        )}
+                        {/* Token info for assistant messages */}
+                        {msg.role === "assistant" && (msg.tokensUsed > 0 || msg.creditsCharged > 0) && (
+                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/30 text-[10px] text-muted-foreground">
+                            <span>{msg.tokensUsed} tokens</span>
+                            <span>·</span>
+                            <span>{msg.creditsCharged} créditos</span>
+                          </div>
                         )}
                       </div>
                       {msg.role === "user" && (

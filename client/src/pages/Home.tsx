@@ -1,12 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getLoginUrl } from "@/const";
+import { trpc } from "@/lib/trpc";
 import { AGENTS } from "@shared/types";
 import {
   Mic, Lightbulb, Search, ClipboardList, FileText, Layers,
-  Sparkles, ArrowRight, LogOut, LayoutDashboard, User, Crown,
-  Menu, X,
+  Sparkles, ArrowRight, LogOut, Crown, Menu, X, Coins,
 } from "lucide-react";
 import { Link } from "wouter";
 import { useState } from "react";
@@ -24,9 +23,23 @@ const colorMap: Record<string, { bg: string; text: string; border: string; iconB
   cyan:    { bg: "bg-cyan-50",    text: "text-cyan-600",    border: "hover:border-cyan-300",    iconBg: "bg-cyan-100" },
 };
 
+const roleLabels: Record<string, { label: string; color: string }> = {
+  admin: { label: "ADM", color: "bg-red-100 text-red-700" },
+  editor: { label: "Editor", color: "bg-purple-100 text-purple-700" },
+  premium: { label: "Premium", color: "bg-amber-100 text-amber-700" },
+  free: { label: "Free", color: "bg-gray-100 text-gray-600" },
+  user: { label: "Usuário", color: "bg-blue-100 text-blue-700" },
+};
+
 export default function Home() {
   const { user, isAuthenticated, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const { data: creditData } = trpc.credits.getBalance.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
+
+  const roleBadge = user?.role ? roleLabels[user.role] || roleLabels.user : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -41,44 +54,56 @@ export default function Home() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
-            <Link href="/" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">
-              Início
-            </Link>
-            <Link href="/planos" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">
-              Planos
-            </Link>
+            <Link href="/" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">Início</Link>
+            <Link href="/planos" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">Planos</Link>
             {isAuthenticated && (
-              <Link href="/perfil" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">
-                Meu Perfil
-              </Link>
+              <Link href="/perfil" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">Meu Perfil</Link>
             )}
-            {user?.role === "admin" && (
-              <Link href="/admin" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">
-                Admin
-              </Link>
+            {(user?.role === "admin" || user?.role === "editor") && (
+              <Link href="/admin" className="px-3 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">Admin</Link>
             )}
           </nav>
 
           <div className="flex items-center gap-3">
             {isAuthenticated ? (
               <div className="hidden md:flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">
-                  {user?.name}
-                </span>
+                {/* Credits display */}
+                {creditData && !creditData.isAdmin && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200">
+                    <Coins className="h-3.5 w-3.5 text-amber-600" />
+                    <span className="text-xs font-semibold text-amber-700">{creditData.balance}</span>
+                  </div>
+                )}
+                {creditData?.isAdmin && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 border border-red-200">
+                    <Sparkles className="h-3.5 w-3.5 text-red-600" />
+                    <span className="text-xs font-semibold text-red-700">Ilimitado</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{user?.name}</span>
+                  {roleBadge && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${roleBadge.color}`}>
+                      {roleBadge.label}
+                    </span>
+                  )}
+                </div>
                 <Button variant="ghost" size="sm" onClick={() => logout()}>
                   <LogOut className="h-4 w-4 mr-1.5" />
                   Sair
                 </Button>
               </div>
             ) : (
-              <Button asChild size="sm" className="hidden md:inline-flex">
-                <a href={getLoginUrl()}>Entrar</a>
-              </Button>
+              <div className="hidden md:flex items-center gap-2">
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/login">Entrar</Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link href="/login">Criar Conta</Link>
+                </Button>
+              </div>
             )}
-            <button
-              className="md:hidden p-2 rounded-md hover:bg-muted"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
+            <button className="md:hidden p-2 rounded-md hover:bg-muted" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
@@ -89,17 +114,24 @@ export default function Home() {
           <div className="md:hidden border-t bg-white p-4 space-y-2">
             <Link href="/" className="block px-3 py-2 text-sm font-medium rounded-md hover:bg-muted" onClick={() => setMobileMenuOpen(false)}>Início</Link>
             <Link href="/planos" className="block px-3 py-2 text-sm font-medium rounded-md hover:bg-muted" onClick={() => setMobileMenuOpen(false)}>Planos</Link>
-            {isAuthenticated && (
+            {isAuthenticated ? (
               <>
+                {creditData && (
+                  <div className="px-3 py-2 flex items-center gap-2">
+                    <Coins className="h-4 w-4 text-amber-600" />
+                    <span className="text-sm font-medium">
+                      {creditData.isAdmin ? "Créditos ilimitados" : `${creditData.balance} créditos`}
+                    </span>
+                  </div>
+                )}
                 <Link href="/perfil" className="block px-3 py-2 text-sm font-medium rounded-md hover:bg-muted" onClick={() => setMobileMenuOpen(false)}>Meu Perfil</Link>
-                {user?.role === "admin" && (
+                {(user?.role === "admin" || user?.role === "editor") && (
                   <Link href="/admin" className="block px-3 py-2 text-sm font-medium rounded-md hover:bg-muted" onClick={() => setMobileMenuOpen(false)}>Admin</Link>
                 )}
                 <button className="block w-full text-left px-3 py-2 text-sm font-medium rounded-md hover:bg-muted text-destructive" onClick={() => { logout(); setMobileMenuOpen(false); }}>Sair</button>
               </>
-            )}
-            {!isAuthenticated && (
-              <a href={getLoginUrl()} className="block px-3 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground text-center">Entrar</a>
+            ) : (
+              <Link href="/login" className="block px-3 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground text-center" onClick={() => setMobileMenuOpen(false)}>Entrar / Criar Conta</Link>
             )}
           </div>
         )}
@@ -133,10 +165,10 @@ export default function Home() {
                 </Button>
               ) : (
                 <Button asChild size="lg" className="bg-white text-primary hover:bg-white/90 font-semibold">
-                  <a href={getLoginUrl()}>
+                  <Link href="/login">
                     Começar Agora
                     <ArrowRight className="ml-2 h-4 w-4" />
-                  </a>
+                  </Link>
                 </Button>
               )}
               <Button asChild size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 bg-transparent">
@@ -168,7 +200,7 @@ export default function Home() {
               const colors = colorMap[agent.color] || colorMap.blue;
 
               return (
-                <Link key={agent.slug} href={isAuthenticated ? `/agente/${agent.slug}` : "#"}>
+                <Link key={agent.slug} href={isAuthenticated ? `/agente/${agent.slug}` : "/login"}>
                   <Card className={`agent-card border-2 h-full ${colors.border} cursor-pointer`}>
                     <CardHeader className="pb-3">
                       <div className={`w-11 h-11 rounded-xl ${colors.iconBg} flex items-center justify-center mb-3`}>
@@ -204,9 +236,9 @@ export default function Home() {
           </div>
           <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[
-              { step: "1", title: "Crie sua conta", desc: "Faça login e escolha o plano ideal para suas necessidades." },
+              { step: "1", title: "Crie sua conta", desc: "Faça login com Google, GitHub ou Manus e escolha o plano ideal." },
               { step: "2", title: "Escolha um agente", desc: "Selecione o agente especializado para a etapa do seu projeto." },
-              { step: "3", title: "Converse e crie", desc: "Interaja com o agente e obtenha resultados profissionais." },
+              { step: "3", title: "Converse e crie", desc: "Interaja com o agente usando seus créditos e obtenha resultados profissionais." },
             ].map((item) => (
               <div key={item.step} className="text-center">
                 <div className="w-12 h-12 rounded-full gradient-hero text-white font-bold text-lg flex items-center justify-center mx-auto mb-4">
@@ -239,10 +271,10 @@ export default function Home() {
                   </Button>
                 ) : (
                   <Button asChild size="lg">
-                    <a href={getLoginUrl()}>
+                    <Link href="/login">
                       <Sparkles className="mr-2 h-4 w-4" />
                       Criar Conta Grátis
-                    </a>
+                    </Link>
                   </Button>
                 )}
                 <Button asChild size="lg" variant="outline">

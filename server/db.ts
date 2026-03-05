@@ -7,6 +7,7 @@ import {
   paymentHistory, InsertPaymentRecord,
   agentSessions, InsertAgentSession,
   agentMessages, InsertAgentMessage,
+  creditTransactions, InsertCreditTransaction,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -14,12 +15,8 @@ let _db: ReturnType<typeof drizzle> | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+    try { _db = drizzle(process.env.DATABASE_URL); }
+    catch (error) { console.warn("[Database] Failed to connect:", error); _db = null; }
   }
   return _db;
 }
@@ -74,6 +71,110 @@ export async function getUserById(id: number) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result[0];
+}
+
+export async function updateUser(id: number, data: Partial<InsertUser>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set(data).where(eq(users.id, id));
+}
+
+// ─── Credits ─────────────────────────────────────────────────────────────────
+
+/**
+ * Credit pricing: 1 credit = 1 cent BRL
+ * Token cost: ~$0.00015 per 1K tokens (input) + ~$0.0006 per 1K tokens (output)
+ * With 50% margin: cost * 1.5
+ * Simplified: 1 credit = ~1000 tokens (with margin built in)
+ */
+const CREDITS_PER_1K_TOKENS = 1.5; // 1 credit base + 50% margin = 1.5 credits per 1K tokens
+
+export function calculateCreditsForTokens(totalTokens: number): number {
+  return Math.ceil((totalTokens / 1000) * CREDITS_PER_1K_TOKENS);
+}
+
+export async function debitUserCredits(
+  userId: number,
+  tokensUsed: number,
+  sessionId?: number,
+  messageId?: number,
+): Promise<{ creditsCharged: number; newBalance: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const user = await getUserById(userId);
+  if (!user) throw new Error("User not found");
+
+  // Admin has unlimited credits
+  if (user.role === "admin") {
+    return { creditsCharged: 0, newBalance: user.creditsBalance };
+  }
+
+  const creditsToCharge = calculateCreditsForTokens(tokensUsed);
+  const newBalance = user.creditsBalance - creditsToCharge;
+
+  // Update user balance and total tokens
+  await db.update(users).set({
+    creditsBalance: newBalance,
+    totalTokensUsed: sql`${users.totalTokensUsed} + ${tokensUsed}`,
+    totalCreditsSpent: sql`${users.totalCreditsSpent} + ${creditsToCharge}`,
+  }).where(eq(users.id, userId));
+
+  // Record transaction
+  await db.insert(creditTransactions).values({
+    userId,
+    type: "usage",
+    amount: -creditsToCharge,
+    balanceAfter: newBalance,
+    description: `Consumo de ${tokensUsed} tokens`,
+    relatedSessionId: sessionId,
+    relatedMessageId: messageId,
+    tokensConsumed: tokensUsed,
+  });
+
+  return { creditsCharged: creditsToCharge, newBalance };
+}
+
+export async function addUserCredits(
+  userId: number,
+  credits: number,
+  type: "purchase" | "subscription_grant" | "refund" | "admin_grant",
+  description: string,
+): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const user = await getUserById(userId);
+  if (!user) throw new Error("User not found");
+
+  const newBalance = user.creditsBalance + credits;
+  await db.update(users).set({ creditsBalance: newBalance }).where(eq(users.id, userId));
+
+  await db.insert(creditTransactions).values({
+    userId,
+    type,
+    amount: credits,
+    balanceAfter: newBalance,
+    description,
+  });
+
+  return newBalance;
+}
+
+export async function getUserCreditTransactions(userId: number, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(creditTransactions)
+    .where(eq(creditTransactions.userId, userId))
+    .orderBy(desc(creditTransactions.createdAt))
+    .limit(limit);
+}
+
+export async function checkUserHasCredits(userId: number): Promise<{ hasCredits: boolean; balance: number; isAdmin: boolean }> {
+  const user = await getUserById(userId);
+  if (!user) return { hasCredits: false, balance: 0, isAdmin: false };
+  if (user.role === "admin") return { hasCredits: true, balance: Infinity, isAdmin: true };
+  return { hasCredits: user.creditsBalance > 0, balance: user.creditsBalance, isAdmin: false };
 }
 
 // ─── Access Levels ───────────────────────────────────────────────────────────
@@ -208,12 +309,22 @@ export async function updateAgentSession(id: number, data: Partial<InsertAgentSe
   await db.update(agentSessions).set(data).where(eq(agentSessions.id, id));
 }
 
+export async function updateSessionTokens(sessionId: number, tokens: number, credits: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(agentSessions).set({
+    totalTokensUsed: sql`${agentSessions.totalTokensUsed} + ${tokens}`,
+    totalCreditsCharged: sql`${agentSessions.totalCreditsCharged} + ${credits}`,
+  }).where(eq(agentSessions.id, sessionId));
+}
+
 // ─── Agent Messages ──────────────────────────────────────────────────────────
 
 export async function addAgentMessage(data: InsertAgentMessage) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(agentMessages).values(data);
+  const result = await db.insert(agentMessages).values(data);
+  return result[0].insertId;
 }
 
 export async function getSessionMessages(sessionId: number) {
@@ -232,6 +343,8 @@ export async function getAgentUsageStats() {
   return db.select({
     agentSlug: agentSessions.agentSlug,
     totalSessions: sql<number>`count(*)`,
+    totalTokens: sql<number>`COALESCE(sum(${agentSessions.totalTokensUsed}), 0)`,
+    totalCredits: sql<number>`COALESCE(sum(${agentSessions.totalCreditsCharged}), 0)`,
   }).from(agentSessions).groupBy(agentSessions.agentSlug);
 }
 
@@ -247,4 +360,95 @@ export async function getTotalSessions() {
   if (!db) return 0;
   const result = await db.select({ count: sql<number>`count(*)` }).from(agentSessions);
   return result[0]?.count ?? 0;
+}
+
+export async function getUsersByRole() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    role: users.role,
+    count: sql<number>`count(*)`,
+  }).from(users).groupBy(users.role);
+}
+
+// ─── Seed Default Access Levels ──────────────────────────────────────────────
+
+export async function seedDefaultAccessLevels() {
+  const db = await getDb();
+  if (!db) return;
+
+  const existing = await getAllAccessLevels();
+  if (existing.length > 0) return; // Already seeded
+
+  const levels: InsertAccessLevel[] = [
+    {
+      slug: "free",
+      name: "Gratuito",
+      description: "Acesso básico para experimentar a plataforma",
+      priceMonthly: 0,
+      priceYearly: 0,
+      monthlyCredits: 100,
+      maxSessionsPerMonth: 3,
+      maxMessagesPerSession: 10,
+      maxTokensPerMessage: 2048,
+      allowedAgents: ["entrevista"],
+      features: { basicChat: true, exportPdf: false, prioritySupport: false, customPrompts: false },
+      sortOrder: 0,
+      active: true,
+      highlighted: false,
+    },
+    {
+      slug: "premium",
+      name: "Premium",
+      description: "Acesso completo a todos os agentes com créditos generosos",
+      priceMonthly: 4990,
+      priceYearly: 49900,
+      monthlyCredits: 5000,
+      maxSessionsPerMonth: 50,
+      maxMessagesPerSession: 100,
+      maxTokensPerMessage: 8192,
+      allowedAgents: ["*"],
+      features: { basicChat: true, exportPdf: true, prioritySupport: true, customPrompts: false },
+      sortOrder: 1,
+      active: true,
+      highlighted: true,
+    },
+    {
+      slug: "editor",
+      name: "Editor",
+      description: "Acesso de edição e manutenção do site",
+      priceMonthly: 0,
+      priceYearly: 0,
+      monthlyCredits: 10000,
+      maxSessionsPerMonth: -1,
+      maxMessagesPerSession: -1,
+      maxTokensPerMessage: 16384,
+      allowedAgents: ["*"],
+      features: { basicChat: true, exportPdf: true, prioritySupport: true, customPrompts: true, editSite: true },
+      sortOrder: 2,
+      active: true,
+      highlighted: false,
+    },
+    {
+      slug: "admin",
+      name: "Administrador",
+      description: "Acesso total sem limites - proprietário da plataforma",
+      priceMonthly: 0,
+      priceYearly: 0,
+      monthlyCredits: -1,
+      maxSessionsPerMonth: -1,
+      maxMessagesPerSession: -1,
+      maxTokensPerMessage: -1,
+      allowedAgents: ["*"],
+      features: { basicChat: true, exportPdf: true, prioritySupport: true, customPrompts: true, editSite: true, manageUsers: true, manageAccess: true },
+      sortOrder: 3,
+      active: true,
+      highlighted: false,
+    },
+  ];
+
+  for (const level of levels) {
+    await db.insert(accessLevels).values(level);
+  }
+  console.log("[Database] Default access levels seeded");
 }

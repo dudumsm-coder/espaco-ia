@@ -13,3 +13,11 @@
 - [x] Configurar estilos globais e design system profissional
 - [x] Escrever testes vitest para rotas principais
 - [x] Push de migrações do banco de dados
+- [x] Expandir schema: adicionar campos de créditos, tokens consumidos e role expandido (admin, editor, premium, free)
+- [x] Criar seed dos 4 níveis de acesso (ADM, Editor, Premium, Free) no banco
+- [x] Implementar sistema de créditos vinculado a tokens com margem de 50%
+- [x] Rastrear consumo de tokens por mensagem e debitar créditos do usuário
+- [x] Criar tela de login/cadastro com opções Google e GitHub
+- [x] Registrar dados completos do usuário na tabela users
+- [x] Atualizar painel admin para gerenciar os 4 níveis e visualizar créditos
+- [x] Escrever testes para o sistema de créditos e autenticação

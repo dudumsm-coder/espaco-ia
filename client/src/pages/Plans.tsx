@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getLoginUrl } from "@/const";
+
 import { trpc } from "@/lib/trpc";
 import { Sparkles, Check, ArrowLeft, Crown } from "lucide-react";
 import { Link } from "wouter";
@@ -19,7 +19,7 @@ export default function Plans() {
 
   const handleSubscribe = async (levelId: number) => {
     if (!isAuthenticated) {
-      window.location.href = getLoginUrl();
+      window.location.href = "/login";
       return;
     }
     try {
@@ -122,6 +122,10 @@ export default function Plans() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="space-y-2.5">
+                        <div className="flex items-center gap-2 text-sm">
+                          <Check className="h-4 w-4 text-primary shrink-0" />
+                          <span>{level.monthlyCredits === -1 ? "Créditos ilimitados" : `${level.monthlyCredits} créditos/mês`}</span>
+                        </div>
                         <div className="flex items-center gap-2 text-sm">
                           <Check className="h-4 w-4 text-primary shrink-0" />
                           <span>{level.maxSessionsPerMonth === -1 ? "Sessões ilimitadas" : `${level.maxSessionsPerMonth} sessões/mês`}</span>
