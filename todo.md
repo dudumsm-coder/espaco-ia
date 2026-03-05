@@ -21,3 +21,4 @@
 - [x] Registrar dados completos do usuário na tabela users
 - [x] Atualizar painel admin para gerenciar os 4 níveis e visualizar créditos
 - [x] Escrever testes para o sistema de créditos e autenticação
+- [x] Bug: scroll não funciona na página de chat dos agentes - usuário não consegue rolar para ver toda a conversa

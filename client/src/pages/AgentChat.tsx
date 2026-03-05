@@ -2,7 +2,6 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { trpc } from "@/lib/trpc";
 import { AGENTS, type AgentSlug } from "@shared/types";
 import {
@@ -37,6 +36,7 @@ export default function AgentChat() {
   const [message, setMessage] = useState("");
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const colors = colorMap[agent?.color] || colorMap.blue;
   const Icon = iconMap[agent?.icon] || Sparkles;
@@ -60,9 +60,12 @@ export default function AgentChat() {
     enabled: isAuthenticated,
   });
 
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
+  }, [chatMessages, sendMessageMutation.isPending]);
 
   if (!agent) {
     return (
@@ -118,7 +121,6 @@ export default function AgentChat() {
     try {
       const result = await sendMessageMutation.mutateAsync({ sessionId: currentSessionId, message: userMessage });
       refetchMessages();
-      // Refresh credits after usage
       utils.credits.getBalance.invalidate();
       if (result.tokensUsed > 0 && result.creditsCharged > 0) {
         toast.info(`${result.tokensUsed} tokens usados (${result.creditsCharged} créditos)`, { duration: 3000 });
@@ -143,28 +145,28 @@ export default function AgentChat() {
   const lowCredits = creditData && !creditData.isAdmin && creditData.balance < 50;
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="fixed inset-0 flex flex-col bg-background">
       {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-md h-14 flex items-center px-4 gap-3 shrink-0">
+      <header className="border-b bg-white/80 backdrop-blur-md h-14 flex items-center px-4 gap-3 flex-shrink-0 z-10">
         <Link href="/">
           <Button variant="ghost" size="sm" className="gap-1.5">
             <ArrowLeft className="h-4 w-4" />
             <span className="hidden sm:inline">Voltar</span>
           </Button>
         </Link>
-        <div className="flex items-center gap-2.5 flex-1">
-          <div className={`w-8 h-8 rounded-lg ${colors.iconBg} flex items-center justify-center`}>
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <div className={`w-8 h-8 rounded-lg ${colors.iconBg} flex items-center justify-center flex-shrink-0`}>
             <Icon className={`h-4 w-4 ${colors.text}`} />
           </div>
-          <div>
-            <h1 className="text-sm font-semibold leading-tight">{agent.name}</h1>
-            <p className="text-xs text-muted-foreground hidden sm:block">{agent.description.substring(0, 60)}...</p>
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold leading-tight truncate">{agent.name}</h1>
+            <p className="text-xs text-muted-foreground hidden sm:block truncate">{agent.description.substring(0, 60)}...</p>
           </div>
         </div>
 
         {/* Credits indicator */}
         {creditData && (
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold flex-shrink-0 ${
             creditData.isAdmin
               ? "bg-red-50 border-red-200 text-red-700"
               : lowCredits
@@ -185,7 +187,7 @@ export default function AgentChat() {
           </div>
         )}
 
-        <Button variant="outline" size="sm" onClick={handleNewSession} disabled={createSessionMutation.isPending}>
+        <Button variant="outline" size="sm" onClick={handleNewSession} disabled={createSessionMutation.isPending} className="flex-shrink-0">
           <Plus className="h-4 w-4 mr-1.5" />
           <span className="hidden sm:inline">Nova Sessão</span>
         </Button>
@@ -193,17 +195,18 @@ export default function AgentChat() {
 
       {/* Low credits warning */}
       {lowCredits && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2 text-sm text-amber-800">
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2 text-sm text-amber-800 flex-shrink-0">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>Seus créditos estão baixos ({creditData.balance} restantes).</span>
           <Link href="/planos" className="font-semibold underline ml-1">Fazer upgrade</Link>
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* Main content area */}
+      <div className="flex flex-1 min-h-0">
         {/* Sidebar - Sessions */}
-        <aside className="w-64 border-r bg-muted/30 overflow-hidden transition-all duration-200 hidden md:block">
-          <div className="p-3">
+        <aside className="w-64 border-r bg-muted/30 hidden md:flex md:flex-col flex-shrink-0">
+          <div className="p-3 overflow-y-auto flex-1">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-2">Sessões</h3>
             <div className="space-y-1">
               {activeSessions.length === 0 ? (
@@ -235,9 +238,9 @@ export default function AgentChat() {
         </aside>
 
         {/* Chat Area */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 flex flex-col min-h-0 min-w-0">
           {currentSessionId === null ? (
-            <div className="flex-1 flex items-center justify-center p-8">
+            <div className="flex-1 flex items-center justify-center p-8 overflow-y-auto">
               <div className="text-center max-w-md">
                 <div className={`w-20 h-20 rounded-2xl ${colors.iconBg} flex items-center justify-center mx-auto mb-6`}>
                   <Icon className={`h-10 w-10 ${colors.text}`} />
@@ -252,8 +255,11 @@ export default function AgentChat() {
             </div>
           ) : (
             <>
-              {/* Messages */}
-              <ScrollArea className="flex-1 p-4 lg:p-6">
+              {/* Messages - scrollable area */}
+              <div
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto p-4 lg:p-6"
+              >
                 <div className="max-w-3xl mx-auto space-y-4">
                   {(!chatMessages || chatMessages.length === 0) && !sendMessageMutation.isPending && (
                     <div className="text-center py-12">
@@ -284,7 +290,6 @@ export default function AgentChat() {
                         ) : (
                           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                         )}
-                        {/* Token info for assistant messages */}
                         {msg.role === "assistant" && (msg.tokensUsed > 0 || msg.creditsCharged > 0) && (
                           <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/30 text-[10px] text-muted-foreground">
                             <span>{msg.tokensUsed} tokens</span>
@@ -317,10 +322,10 @@ export default function AgentChat() {
                   )}
                   <div ref={messagesEndRef} />
                 </div>
-              </ScrollArea>
+              </div>
 
-              {/* Input */}
-              <div className="border-t bg-white p-4">
+              {/* Input - fixed at bottom */}
+              <div className="border-t bg-white p-4 flex-shrink-0">
                 <form
                   onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}
                   className="max-w-3xl mx-auto flex gap-2"
