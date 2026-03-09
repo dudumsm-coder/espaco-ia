@@ -27,6 +27,10 @@ export default function Profile() {
   const { data: creditData } = trpc.credits.getBalance.useQuery(undefined, { enabled: isAuthenticated });
   const { data: transactions } = trpc.credits.getTransactions.useQuery(undefined, { enabled: isAuthenticated });
   const cancelMutation = trpc.subscriptions.cancel.useMutation();
+  const checkoutMutation = trpc.payments.createCheckout.useMutation();
+  const portalMutation = trpc.payments.openPortal.useMutation();
+  const stripeCancelMutation = trpc.payments.cancelSubscription.useMutation();
+  const { data: paymentHistory } = trpc.payments.getHistory.useQuery(undefined, { enabled: isAuthenticated });
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -50,11 +54,37 @@ export default function Profile() {
   const handleCancel = async () => {
     if (!confirm("Tem certeza que deseja cancelar sua assinatura?")) return;
     try {
-      await cancelMutation.mutateAsync();
-      toast.success("Assinatura cancelada");
+      // Try Stripe cancel first (if has Stripe subscription)
+      const dbUser = await fetch("/api/trpc/auth.me").then(r => r.json()).catch(() => null);
+      if (user?.stripeSubscriptionId) {
+        await stripeCancelMutation.mutateAsync();
+        toast.success("Assinatura será cancelada ao fim do período atual");
+      } else {
+        await cancelMutation.mutateAsync();
+        toast.success("Assinatura cancelada");
+      }
       refetchSub();
     } catch (error: any) {
       toast.error(error.message || "Erro ao cancelar");
+    }
+  };
+
+  const handleUpgrade = async () => {
+    try {
+      toast.info("Redirecionando para o checkout...");
+      const { checkoutUrl } = await checkoutMutation.mutateAsync({ origin: window.location.origin });
+      window.open(checkoutUrl, "_blank");
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao abrir checkout");
+    }
+  };
+
+  const handleManageBilling = async () => {
+    try {
+      const { portalUrl } = await portalMutation.mutateAsync({ origin: window.location.origin });
+      window.open(portalUrl, "_blank");
+    } catch (error: any) {
+      toast.error("Nenhuma assinatura Stripe encontrada. Assine um plano primeiro.");
     }
   };
 
@@ -230,10 +260,22 @@ export default function Profile() {
                           <p className="font-medium">{formatDate(subscription.currentPeriodEnd)}</p>
                         </div>
                       </div>
-                      <div className="flex gap-3">
+                      <div className="flex flex-wrap gap-3">
                         <Button asChild variant="outline"><Link href="/planos">Trocar Plano</Link></Button>
+                        <Button
+                          variant="outline"
+                          onClick={handleManageBilling}
+                          disabled={portalMutation.isPending}
+                        >
+                          <CreditCard className="h-4 w-4 mr-2" />
+                          Gerenciar Cobranças
+                        </Button>
                         {subscription.status === "active" && (
-                          <Button variant="destructive" onClick={handleCancel} disabled={cancelMutation.isPending}>
+                          <Button
+                            variant="destructive"
+                            onClick={handleCancel}
+                            disabled={cancelMutation.isPending || stripeCancelMutation.isPending}
+                          >
                             Cancelar Assinatura
                           </Button>
                         )}
@@ -244,7 +286,17 @@ export default function Profile() {
                       <Crown className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
                       <h3 className="font-semibold mb-2">Nenhuma assinatura ativa</h3>
                       <p className="text-muted-foreground mb-4">Você está no plano gratuito com acesso limitado.</p>
-                      <Button asChild><Link href="/planos">Ver Planos</Link></Button>
+                      <div className="flex gap-3 justify-center">
+                        <Button asChild><Link href="/planos">Ver Planos</Link></Button>
+                        <Button
+                          variant="outline"
+                          onClick={handleUpgrade}
+                          disabled={checkoutMutation.isPending}
+                        >
+                          <Crown className="h-4 w-4 mr-2" />
+                          Assinar Premium
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>

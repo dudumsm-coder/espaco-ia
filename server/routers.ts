@@ -8,6 +8,7 @@ import { invokeLLM } from "./_core/llm";
 import { invokeAgentLLM, getAgentModelName } from "./agentLLM";
 import * as db from "./db";
 import { AGENT_SLUGS, AGENT_SYSTEM_PROMPTS, type AgentSlug } from "@shared/types";
+import { getOrCreateStripeCustomer, createCheckoutSession, createPortalSession, cancelSubscriptionAtPeriodEnd, STRIPE_PRICES } from "./stripe";
 
 // ─── Role-based procedures ──────────────────────────────────────────────────
 
@@ -305,6 +306,72 @@ export const appRouter = router({
         await db.updateUser(ctx.user.id, input);
         return { success: true };
       }),
+  }),
+
+  // ─── Payments (Stripe) ────────────────────────────────────────────────
+  payments: router({
+    createCheckout: protectedProcedure
+      .input(z.object({ priceId: z.string().optional(), origin: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserById(ctx.user.id);
+        if (!user) throw new TRPCError({ code: "NOT_FOUND" });
+
+        const customerId = await getOrCreateStripeCustomer(
+          user.id,
+          user.email,
+          user.name,
+          user.stripeCustomerId
+        );
+
+        // Save customer ID if new
+        if (customerId !== user.stripeCustomerId) {
+          await db.updateUserStripeInfo(user.id, { stripeCustomerId: customerId });
+        }
+
+        const priceId = input.priceId ?? STRIPE_PRICES.premium_monthly;
+        const checkoutUrl = await createCheckoutSession({
+          customerId,
+          userId: user.id,
+          userEmail: user.email,
+          userName: user.name,
+          priceId,
+          successUrl: `${input.origin}/perfil?payment=success`,
+          cancelUrl: `${input.origin}/planos?payment=cancelled`,
+        });
+
+        return { checkoutUrl };
+      }),
+
+    openPortal: protectedProcedure
+      .input(z.object({ origin: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserById(ctx.user.id);
+        if (!user?.stripeCustomerId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma assinatura Stripe encontrada" });
+        }
+        const portalUrl = await createPortalSession(
+          user.stripeCustomerId,
+          `${input.origin}/perfil`
+        );
+        return { portalUrl };
+      }),
+
+    cancelSubscription: protectedProcedure.mutation(async ({ ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      if (!user?.stripeSubscriptionId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma assinatura Stripe ativa" });
+      }
+      await cancelSubscriptionAtPeriodEnd(user.stripeSubscriptionId);
+      return { success: true, message: "Assinatura será cancelada ao fim do período atual" };
+    }),
+
+    getHistory: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUserPayments(ctx.user.id);
+    }),
+
+    getAdminPayments: adminProcedure.query(async () => {
+      return db.getAllPayments();
+    }),
   }),
 
   // ─── Admin ─────────────────────────────────────────────────────────────

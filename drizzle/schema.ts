@@ -12,6 +12,9 @@ export const users = mysqlTable("users", {
   creditsBalance: int("creditsBalance").default(0).notNull(), // current credits in cents
   totalTokensUsed: bigint("totalTokensUsed", { mode: "number" }).default(0).notNull(),
   totalCreditsSpent: int("totalCreditsSpent").default(0).notNull(), // lifetime credits spent
+  // Stripe identifiers
+  stripeCustomerId: varchar("stripeCustomerId", { length: 100 }),
+  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 100 }),
   // Profile
   avatarUrl: text("avatarUrl"),
   phone: varchar("phone", { length: 20 }),
@@ -77,6 +80,8 @@ export const paymentHistory = mysqlTable("payment_history", {
   status: mysqlEnum("status", ["pending", "completed", "failed", "refunded"]).default("pending").notNull(),
   paymentMethod: varchar("paymentMethod", { length: 50 }),
   externalId: varchar("externalId", { length: 255 }),
+  stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 100 }),
+  stripeInvoiceId: varchar("stripeInvoiceId", { length: 100 }),
   description: text("description"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

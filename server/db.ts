@@ -452,3 +452,119 @@ export async function seedDefaultAccessLevels() {
   }
   console.log("[Database] Default access levels seeded");
 }
+
+// ─── Stripe Support Functions ─────────────────────────────────────────────────
+
+export async function getUserByStripeCustomerId(stripeCustomerId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users)
+    .where(eq(users.stripeCustomerId, stripeCustomerId)).limit(1);
+  return result[0];
+}
+
+export async function updateUserStripeInfo(
+  userId: number,
+  data: { stripeCustomerId?: string | null; stripeSubscriptionId?: string | null; role?: "user" | "admin" | "editor" | "premium" | "free" }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set(data).where(eq(users.id, userId));
+}
+
+export async function grantCreditsToUser(
+  userId: number,
+  credits: number,
+  type: "purchase" | "subscription_grant" | "refund" | "admin_grant",
+  description: string
+): Promise<number> {
+  return addUserCredits(userId, credits, type, description);
+}
+
+export async function upsertUserSubscription(
+  userId: number,
+  data: {
+    accessLevelId: number;
+    status: "active" | "cancelled" | "expired" | "past_due";
+    billingCycle: "monthly" | "yearly";
+    currentPeriodStart: Date;
+    currentPeriodEnd: Date;
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db.select().from(userSubscriptions)
+    .where(eq(userSubscriptions.userId, userId)).limit(1);
+
+  if (existing.length > 0) {
+    await db.update(userSubscriptions).set({
+      ...data,
+      sessionsUsedThisPeriod: 0,
+      creditsUsedThisPeriod: 0,
+    }).where(eq(userSubscriptions.userId, userId));
+  } else {
+    await db.insert(userSubscriptions).values({
+      userId,
+      ...data,
+      sessionsUsedThisPeriod: 0,
+      creditsUsedThisPeriod: 0,
+    });
+  }
+}
+
+export async function updateSubscriptionPeriod(
+  subscriptionId: number,
+  periodStart: Date,
+  periodEnd: Date
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(userSubscriptions).set({
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: periodEnd,
+    sessionsUsedThisPeriod: 0,
+    creditsUsedThisPeriod: 0,
+  }).where(eq(userSubscriptions.id, subscriptionId));
+}
+
+export async function updateSubscriptionStatus(
+  subscriptionId: number,
+  status: "active" | "cancelled" | "expired" | "past_due"
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(userSubscriptions).set({ status }).where(eq(userSubscriptions.id, subscriptionId));
+}
+
+export async function recordPayment(data: {
+  userId: number;
+  amountCents: number;
+  currency: string;
+  status: "pending" | "completed" | "failed" | "refunded";
+  paymentMethod?: string;
+  externalId?: string | null;
+  stripePaymentIntentId?: string | null;
+  stripeInvoiceId?: string | null;
+  description?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(paymentHistory).values({
+    userId: data.userId,
+    amountCents: data.amountCents,
+    currency: data.currency,
+    status: data.status,
+    paymentMethod: data.paymentMethod,
+    externalId: data.externalId ?? undefined,
+    stripePaymentIntentId: data.stripePaymentIntentId ?? undefined,
+    stripeInvoiceId: data.stripeInvoiceId ?? undefined,
+    description: data.description,
+  });
+}
+
+export async function getAllPayments(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(paymentHistory).orderBy(desc(paymentHistory.createdAt)).limit(limit);
+}

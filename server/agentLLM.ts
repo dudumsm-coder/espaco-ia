@@ -1,7 +1,7 @@
 /**
  * Agent-specific LLM routing
  *
- * - Entrevista, Ideação, Análise → Gemini 2.0 Flash (via Google AI API diretamente,
+ * - Entrevista, Ideação, Análise → Gemini 2.5 Flash (via Google AI API diretamente,
  *   ou via Forge se GOOGLE_AI_API_KEY não estiver configurada — fallback automático)
  * - Requisitos, Documentação, Prototipagem → Manus Forge (gemini-2.5-flash padrão)
  */
@@ -13,7 +13,7 @@ import { invokeLLM, type Message, type InvokeResult } from "./_core/llm";
 const GEMINI_FLASH_AGENTS = new Set(["entrevista", "ideacao", "analise"]);
 
 // Modelo para cada grupo
-const MODEL_GEMINI_FLASH = "gemini-2.0-flash";
+const MODEL_GEMINI_FLASH = "gemini-2.5-flash"; // Gemini 2.5 Flash conforme solicitado
 const MODEL_MANUS_DEFAULT = "gemini-2.5-flash"; // padrão do Forge
 
 /**
@@ -36,7 +36,7 @@ export async function invokeAgentLLM(
     }
 
     // Fallback: usa o Forge da Manus com model hint
-    console.log(`[AgentLLM] GOOGLE_AI_API_KEY não configurada. Usando Forge (${MODEL_GEMINI_FLASH} hint) para agente: ${agentSlug}`);
+    console.log(`[AgentLLM] GOOGLE_AI_API_KEY não configurada. Usando Forge (${MODEL_GEMINI_FLASH}) para agente: ${agentSlug}`);
     return invokeLLM({ messages, max_tokens: 8192 });
   }
 
@@ -92,8 +92,8 @@ async function invokeGoogleAI(
 export function getAgentModelName(agentSlug: string): string {
   if (GEMINI_FLASH_AGENTS.has(agentSlug)) {
     return process.env.GOOGLE_AI_API_KEY
-      ? `${MODEL_GEMINI_FLASH} (Google AI)`
-      : `${MODEL_GEMINI_FLASH} via Manus Forge`;
+      ? "Gemini 2.5 Flash (Google AI)"
+      : "Gemini 2.5 Flash (Manus Forge)";
   }
-  return `${MODEL_MANUS_DEFAULT} (Manus Forge)`;
+  return "Gemini 2.5 Flash (Manus Forge)";
 }

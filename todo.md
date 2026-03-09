@@ -34,3 +34,10 @@
 - [x] Configurar agentes Entrevista, Ideação e Análise para usar Gemini 2.0 Flash
 - [x] Manter agentes Requisitos, Documentação e Prototipagem com Manus LLM
 - [x] Criar helper de LLM com seleção de modelo por agente
+- [x] Configurar secrets Stripe (public key, secret key, webhook secret)
+- [x] Configurar GOOGLE_AI_API_KEY para Gemini 2.5 Flash
+- [x] Criar Price ID mensal no Stripe para plano Premium
+- [x] Implementar backend: checkout session, webhooks Stripe (payment_intent, subscription)
+- [x] Implementar frontend: botões de checkout e portal de cobranças no perfil
+- [x] Atualizar agentLLM para usar gemini-2.5-flash via Google AI diretamente
+- [x] Atualizar schema com stripeCustomerId e stripeSubscriptionId na tabela users

@@ -37,20 +37,31 @@ export default function Plans() {
   const { data: allLevels, isLoading } = trpc.accessLevels.getActive.useQuery();
   const { data: currentSub } = trpc.subscriptions.getMy.useQuery(undefined, { enabled: isAuthenticated });
   const subscribeMutation = trpc.subscriptions.subscribe.useMutation();
+  const checkoutMutation = trpc.payments.createCheckout.useMutation();
 
   // Filtra apenas planos comerciais (remove editor e admin)
   const levels = allLevels?.filter((l) => !INTERNAL_SLUGS.includes(l.slug)) ?? [];
 
-  const handleSubscribe = async (levelId: number, isFree: boolean) => {
+  const handleSubscribe = async (levelId: number, isFree: boolean, levelSlug: string) => {
     if (!isAuthenticated) {
       window.location.href = "/login";
       return;
     }
     try {
-      await subscribeMutation.mutateAsync({ accessLevelId: levelId, billingCycle });
-      toast.success(isFree ? "Plano gratuito ativado!" : "Assinatura realizada com sucesso!");
+      if (isFree) {
+        // Free plan: activate directly
+        await subscribeMutation.mutateAsync({ accessLevelId: levelId, billingCycle });
+        toast.success("Plano gratuito ativado!");
+      } else {
+        // Paid plan: redirect to Stripe Checkout
+        toast.info("Redirecionando para o checkout...");
+        const { checkoutUrl } = await checkoutMutation.mutateAsync({
+          origin: window.location.origin,
+        });
+        window.open(checkoutUrl, "_blank");
+      }
     } catch (error: any) {
-      toast.error(error.message || "Erro ao assinar plano");
+      toast.error(error.message || "Erro ao processar assinatura");
     }
   };
 
@@ -232,7 +243,7 @@ export default function Plans() {
                           className="w-full mt-4"
                           variant={level.highlighted ? "default" : "outline"}
                           disabled={isCurrentPlan || subscribeMutation.isPending}
-                          onClick={() => handleSubscribe(level.id, isFree)}
+                          onClick={() => handleSubscribe(level.id, isFree, level.slug)}
                         >
                           {isCurrentPlan
                             ? "✓ Plano Atual"
