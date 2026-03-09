@@ -5,6 +5,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
+import { invokeAgentLLM, getAgentModelName } from "./agentLLM";
 import * as db from "./db";
 import { AGENT_SLUGS, AGENT_SYSTEM_PROMPTS, type AgentSlug } from "@shared/types";
 
@@ -113,7 +114,9 @@ export const appRouter = router({
           ...messages.map(m => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
         ];
 
-        const response = await invokeLLM({ messages: llmMessages });
+        // Usa o modelo correto para cada agente
+        const modelUsed = getAgentModelName(slug);
+        const response = await invokeAgentLLM(slug, llmMessages);
         const aiResponse = typeof response.choices[0].message.content === "string"
           ? response.choices[0].message.content
           : "Desculpe, não consegui processar sua mensagem.";
@@ -140,7 +143,7 @@ export const appRouter = router({
           await db.updateAgentSession(input.sessionId, { title: shortTitle });
         }
 
-        return { response: aiResponse, tokensUsed, creditsCharged };
+        return { response: aiResponse, tokensUsed, creditsCharged, modelUsed };
       }),
 
     deleteSession: protectedProcedure

@@ -31,3 +31,6 @@
 - [x] Remover planos Editor e ADM da página de Planos comerciais
 - [x] Adicionar plano Empresarial com CTA de contato na página de Planos
 - [x] Criar aba exclusiva de monitoramento de consumo para ADM no painel Admin
+- [x] Configurar agentes Entrevista, Ideação e Análise para usar Gemini 2.0 Flash
+- [x] Manter agentes Requisitos, Documentação e Prototipagem com Manus LLM
+- [x] Criar helper de LLM com seleção de modelo por agente

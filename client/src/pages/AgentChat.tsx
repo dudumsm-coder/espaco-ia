@@ -7,7 +7,7 @@ import { AGENTS, type AgentSlug } from "@shared/types";
 import {
   Mic, Lightbulb, Search, ClipboardList, FileText, Layers,
   Sparkles, Send, Bot, User, ArrowLeft, Plus, MessageSquare, Trash2,
-  Coins, AlertTriangle,
+  Coins, AlertTriangle, Cpu,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useLocation } from "wouter";
@@ -16,6 +16,16 @@ import { toast } from "sonner";
 
 const iconMap: Record<string, React.ElementType> = {
   Mic, Lightbulb, Search, ClipboardList, FileText, Layers,
+};
+
+// Modelo exibido por agente (label para UI)
+const AGENT_MODEL_LABELS: Record<string, string> = {
+  entrevista: "Gemini 2.0 Flash",
+  ideacao: "Gemini 2.0 Flash",
+  analise: "Gemini 2.0 Flash",
+  requisitos: "Manus AI",
+  documentacao: "Manus AI",
+  prototipagem: "Manus AI",
 };
 
 const colorMap: Record<string, { text: string; bg: string; iconBg: string }> = {
@@ -159,7 +169,13 @@ export default function AgentChat() {
             <Icon className={`h-4 w-4 ${colors.text}`} />
           </div>
           <div className="min-w-0">
-            <h1 className="text-sm font-semibold leading-tight truncate">{agent.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-semibold leading-tight truncate">{agent.name}</h1>
+              <span className="hidden sm:flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted border text-muted-foreground flex-shrink-0">
+                <Cpu className="h-2.5 w-2.5" />
+                {AGENT_MODEL_LABELS[slug] || "Manus AI"}
+              </span>
+            </div>
             <p className="text-xs text-muted-foreground hidden sm:block truncate">{agent.description.substring(0, 60)}...</p>
           </div>
         </div>
@@ -343,6 +359,9 @@ export default function AgentChat() {
                     <Send className="h-4 w-4" />
                   </Button>
                 </form>
+                <p className="text-center text-[10px] text-muted-foreground mt-2">
+                  Powered by <span className="font-medium">{AGENT_MODEL_LABELS[slug] || "Manus AI"}</span>
+                </p>
               </div>
             </>
           )}
