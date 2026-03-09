@@ -9,13 +9,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { AGENTS, AGENT_SLUGS } from "@shared/types";
 import {
   Sparkles, ArrowLeft, Users, BarChart3, Crown, Coins,
-  Plus, Trash2, Shield, Activity, Loader2,
+  Plus, Trash2, Shield, Activity, Loader2, TrendingUp,
+  Zap, MessageSquare, Database, PieChart, AlertCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 
@@ -27,11 +29,24 @@ const roleOptions = [
   { value: "user", label: "Usuário", color: "bg-blue-100 text-blue-700" },
 ];
 
+const agentColors: Record<string, string> = {
+  entrevista: "bg-blue-500",
+  ideacao: "bg-amber-500",
+  analise: "bg-emerald-500",
+  requisitos: "bg-violet-500",
+  documentacao: "bg-rose-500",
+  prototipagem: "bg-cyan-500",
+};
+
 export default function Admin() {
   const { user, isAuthenticated, loading } = useAuth();
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
   }
 
   if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "editor")) {
@@ -59,7 +74,9 @@ export default function Admin() {
 }
 
 function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
-  const { data: metrics } = trpc.admin.getMetrics.useQuery(undefined, { enabled: isAdmin });
+  const { data: metrics, refetch: refetchMetrics } = trpc.admin.getMetrics.useQuery(
+    undefined, { enabled: isAdmin, refetchInterval: 30000 }
+  );
   const { data: users, refetch: refetchUsers } = trpc.admin.getUsers.useQuery(undefined, { enabled: isAdmin });
   const { data: levels, refetch: refetchLevels } = trpc.accessLevels.getAll.useQuery(undefined, { enabled: isAdmin });
 
@@ -83,6 +100,22 @@ function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
     features: {} as Record<string, boolean>,
     sortOrder: 0, active: true, highlighted: false,
   });
+
+  // Computed metrics for monitoring
+  const totalTokens = useMemo(() => {
+    if (!metrics?.agentUsage) return 0;
+    return (metrics.agentUsage as any[]).reduce((sum: number, a: any) => sum + Number(a.totalTokens || 0), 0);
+  }, [metrics]);
+
+  const totalCreditsConsumed = useMemo(() => {
+    if (!metrics?.agentUsage) return 0;
+    return (metrics.agentUsage as any[]).reduce((sum: number, a: any) => sum + Number(a.totalCredits || 0), 0);
+  }, [metrics]);
+
+  const maxAgentSessions = useMemo(() => {
+    if (!metrics?.agentUsage || (metrics.agentUsage as any[]).length === 0) return 1;
+    return Math.max(...(metrics.agentUsage as any[]).map((a: any) => Number(a.totalSessions || 0)));
+  }, [metrics]);
 
   const handleCreateLevel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,92 +194,301 @@ function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
       <main className="flex-1 py-8">
         <div className="container max-w-7xl">
           <h1 className="text-3xl font-bold mb-2">Painel Administrativo</h1>
-          <p className="text-muted-foreground mb-8">Gerencie planos, usuários, créditos e métricas da plataforma.</p>
+          <p className="text-muted-foreground mb-8">Gerencie planos, usuários, créditos e monitore o consumo da plataforma.</p>
 
-          {/* Metrics */}
-          {isAdmin && metrics && (
-            <>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><Users className="h-5 w-5 text-blue-600" /></div>
-                      <div><p className="text-sm text-muted-foreground">Usuários</p><p className="text-2xl font-bold">{metrics.totalUsers}</p></div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center"><Activity className="h-5 w-5 text-emerald-600" /></div>
-                      <div><p className="text-sm text-muted-foreground">Sessões Totais</p><p className="text-2xl font-bold">{metrics.totalSessions}</p></div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center"><Crown className="h-5 w-5 text-violet-600" /></div>
-                      <div><p className="text-sm text-muted-foreground">Assinaturas Ativas</p><p className="text-2xl font-bold">{metrics.activeSubscriptions}</p></div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center"><BarChart3 className="h-5 w-5 text-amber-600" /></div>
-                      <div><p className="text-sm text-muted-foreground">Agentes Ativos</p><p className="text-2xl font-bold">{metrics.agentUsage?.length ?? 0}</p></div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Role distribution */}
-              {metrics.roleStats && metrics.roleStats.length > 0 && (
-                <Card className="mb-8">
-                  <CardHeader><CardTitle className="text-lg">Distribuição por Papel</CardTitle></CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-3">
-                      {metrics.roleStats.map((rs: any) => (
-                        <div key={rs.role} className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg">
-                          {getRoleBadge(rs.role)}
-                          <span className="text-lg font-bold">{rs.count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+          <Tabs defaultValue={isAdmin ? "monitoring" : "levels"} className="space-y-6">
+            <TabsList className="flex-wrap h-auto gap-1">
+              {isAdmin && (
+                <TabsTrigger value="monitoring" className="gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Monitoramento
+                </TabsTrigger>
               )}
-
-              {/* Agent Usage */}
-              {metrics.agentUsage && metrics.agentUsage.length > 0 && (
-                <Card className="mb-8">
-                  <CardHeader><CardTitle className="text-lg">Uso por Agente</CardTitle></CardHeader>
-                  <CardContent>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {metrics.agentUsage.map((a: any) => (
-                        <div key={a.agentSlug} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                          <div>
-                            <span className="text-sm font-medium">{AGENTS[a.agentSlug as keyof typeof AGENTS]?.name || a.agentSlug}</span>
-                            <p className="text-xs text-muted-foreground">{Number(a.totalTokens).toLocaleString("pt-BR")} tokens · {a.totalCredits} créditos</p>
-                          </div>
-                          <Badge variant="secondary">{a.totalSessions} sessões</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+              {isAdmin && (
+                <TabsTrigger value="users" className="gap-2">
+                  <Users className="h-4 w-4" />
+                  Usuários
+                </TabsTrigger>
               )}
-            </>
-          )}
-
-          <Tabs defaultValue={isAdmin ? "users" : "levels"} className="space-y-6">
-            <TabsList className="flex-wrap">
-              {isAdmin && <TabsTrigger value="users" className="gap-2"><Users className="h-4 w-4" />Usuários</TabsTrigger>}
-              <TabsTrigger value="levels" className="gap-2"><Crown className="h-4 w-4" />Níveis de Acesso</TabsTrigger>
+              <TabsTrigger value="levels" className="gap-2">
+                <Crown className="h-4 w-4" />
+                Níveis de Acesso
+              </TabsTrigger>
             </TabsList>
 
-            {/* Users Tab */}
+            {/* ─── MONITORING TAB (ADM ONLY) ─────────────────────────────── */}
+            {isAdmin && (
+              <TabsContent value="monitoring" className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Monitoramento de Consumo</h2>
+                  <Button variant="outline" size="sm" onClick={() => refetchMetrics()}>
+                    <Activity className="h-4 w-4 mr-1.5" />
+                    Atualizar
+                  </Button>
+                </div>
+
+                {!metrics ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <>
+                    {/* KPI Cards */}
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+                              <Users className="h-5 w-5 text-blue-600" />
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Total de Usuários</p>
+                              <p className="text-2xl font-bold">{metrics.totalUsers}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                              <MessageSquare className="h-5 w-5 text-emerald-600" />
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Sessões Totais</p>
+                              <p className="text-2xl font-bold">{metrics.totalSessions}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                              <Zap className="h-5 w-5 text-violet-600" />
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Tokens Consumidos</p>
+                              <p className="text-2xl font-bold">{totalTokens.toLocaleString("pt-BR")}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                              <Coins className="h-5 w-5 text-amber-600" />
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Créditos Consumidos</p>
+                              <p className="text-2xl font-bold">{totalCreditsConsumed.toLocaleString("pt-BR")}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Agent Usage - Bar chart style */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <BarChart3 className="h-5 w-5 text-primary" />
+                          Consumo por Agente
+                        </CardTitle>
+                        <CardDescription>Sessões, tokens e créditos consumidos por cada agente de IA</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {!metrics.agentUsage || (metrics.agentUsage as any[]).length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                            <AlertCircle className="h-8 w-8 mb-2 opacity-40" />
+                            <p className="text-sm">Nenhuma sessão registrada ainda.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-5">
+                            {(metrics.agentUsage as any[]).map((a: any) => {
+                              const agent = AGENTS[a.agentSlug as keyof typeof AGENTS];
+                              const sessions = Number(a.totalSessions || 0);
+                              const tokens = Number(a.totalTokens || 0);
+                              const credits = Number(a.totalCredits || 0);
+                              const pct = maxAgentSessions > 0 ? Math.round((sessions / maxAgentSessions) * 100) : 0;
+                              const barColor = agentColors[a.agentSlug] || "bg-primary";
+
+                              return (
+                                <div key={a.agentSlug} className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <div className={`w-3 h-3 rounded-full ${barColor}`} />
+                                      <span className="text-sm font-medium">{agent?.name || a.agentSlug}</span>
+                                    </div>
+                                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                      <span className="flex items-center gap-1">
+                                        <MessageSquare className="h-3 w-3" />
+                                        {sessions} sessões
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <Zap className="h-3 w-3" />
+                                        {tokens.toLocaleString("pt-BR")} tokens
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <Coins className="h-3 w-3" />
+                                        {credits} créditos
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="relative h-2.5 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className={`absolute left-0 top-0 h-full rounded-full transition-all duration-500 ${barColor}`}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Two-column: Role distribution + Top users by tokens */}
+                    <div className="grid lg:grid-cols-2 gap-6">
+                      {/* Role distribution */}
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <PieChart className="h-5 w-5 text-primary" />
+                            Distribuição por Papel
+                          </CardTitle>
+                          <CardDescription>Quantidade de usuários em cada nível</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {!metrics.roleStats || (metrics.roleStats as any[]).length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">Sem dados.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {(metrics.roleStats as any[]).map((rs: any) => {
+                                const total = (metrics.roleStats as any[]).reduce((s: number, r: any) => s + Number(r.count), 0);
+                                const pct = total > 0 ? Math.round((Number(rs.count) / total) * 100) : 0;
+                                return (
+                                  <div key={rs.role} className="space-y-1">
+                                    <div className="flex items-center justify-between text-sm">
+                                      <div className="flex items-center gap-2">
+                                        {getRoleBadge(rs.role)}
+                                      </div>
+                                      <span className="font-medium">{rs.count} ({pct}%)</span>
+                                    </div>
+                                    <Progress value={pct} className="h-1.5" />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Subscription stats */}
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <TrendingUp className="h-5 w-5 text-primary" />
+                            Assinaturas
+                          </CardTitle>
+                          <CardDescription>Status das assinaturas ativas na plataforma</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                                <span className="text-sm font-medium">Assinaturas Ativas</span>
+                              </div>
+                              <span className="text-xl font-bold text-emerald-700">{metrics.activeSubscriptions}</span>
+                            </div>
+                            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                <Database className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm font-medium">Total de Sessões</span>
+                              </div>
+                              <span className="text-xl font-bold">{metrics.totalSessions}</span>
+                            </div>
+                            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                <Zap className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm font-medium">Tokens/Sessão (média)</span>
+                              </div>
+                              <span className="text-xl font-bold">
+                                {metrics.totalSessions > 0
+                                  ? Math.round(totalTokens / metrics.totalSessions).toLocaleString("pt-BR")
+                                  : "—"}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                <Coins className="h-4 w-4 text-amber-600" />
+                                <span className="text-sm font-medium">Créditos/Sessão (média)</span>
+                              </div>
+                              <span className="text-xl font-bold text-amber-700">
+                                {metrics.totalSessions > 0
+                                  ? Math.round(totalCreditsConsumed / metrics.totalSessions)
+                                  : "—"}
+                              </span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Top users by token consumption */}
+                    {users && users.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <TrendingUp className="h-5 w-5 text-primary" />
+                            Top Usuários por Consumo
+                          </CardTitle>
+                          <CardDescription>Usuários com maior consumo de tokens na plataforma</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {[...users]
+                              .sort((a, b) => Number(b.totalTokensUsed) - Number(a.totalTokensUsed))
+                              .slice(0, 10)
+                              .map((u, idx) => {
+                                const maxTokens = Math.max(...users.map(u => Number(u.totalTokensUsed)));
+                                const pct = maxTokens > 0 ? Math.round((Number(u.totalTokensUsed) / maxTokens) * 100) : 0;
+                                return (
+                                  <div key={u.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+                                    <span className="text-xs font-bold text-muted-foreground w-5 text-right">{idx + 1}</span>
+                                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                      <span className="text-xs font-semibold text-primary">{(u.name || "U")[0].toUpperCase()}</span>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-sm font-medium truncate">{u.name || "Sem nome"}</span>
+                                        <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0 ml-2">
+                                          <span>{Number(u.totalTokensUsed).toLocaleString("pt-BR")} tokens</span>
+                                          <span>{u.creditsBalance} créditos</span>
+                                          {getRoleBadge(u.role)}
+                                        </div>
+                                      </div>
+                                      <Progress value={pct} className="h-1" />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
+                )}
+              </TabsContent>
+            )}
+
+            {/* ─── USERS TAB ──────────────────────────────────────────────── */}
             {isAdmin && (
               <TabsContent value="users">
                 <Card>
@@ -271,12 +513,11 @@ function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
                                   {getRoleBadge(u.role)}
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                  {u.email || "Sem email"} · {u.creditsBalance} créditos · {u.totalTokensUsed.toLocaleString("pt-BR")} tokens
+                                  {u.email || "Sem email"} · {u.creditsBalance} créditos · {Number(u.totalTokensUsed).toLocaleString("pt-BR")} tokens
                                 </p>
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              {/* Role selector */}
                               <Select value={u.role} onValueChange={(v) => handleChangeRole(u.id, v)}>
                                 <SelectTrigger className="w-[140px] h-8 text-xs">
                                   <SelectValue />
@@ -288,7 +529,6 @@ function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
                                 </SelectContent>
                               </Select>
 
-                              {/* Grant credits */}
                               <Dialog open={grantCreditsUserId === u.id} onOpenChange={(open) => { if (!open) setGrantCreditsUserId(null); }}>
                                 <DialogTrigger asChild>
                                   <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setGrantCreditsUserId(u.id)}>
@@ -327,7 +567,7 @@ function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
               </TabsContent>
             )}
 
-            {/* Access Levels Tab */}
+            {/* ─── ACCESS LEVELS TAB ──────────────────────────────────────── */}
             <TabsContent value="levels" className="space-y-6">
               <div className="flex justify-between items-center flex-wrap gap-3">
                 <h2 className="text-xl font-semibold">Níveis de Acesso</h2>
@@ -441,7 +681,6 @@ function AdminDashboard({ isAdmin }: { isAdmin: boolean }) {
                 </Card>
               )}
 
-              {/* Existing levels */}
               <div className="space-y-3">
                 {levels?.map((level) => (
                   <Card key={level.id}>

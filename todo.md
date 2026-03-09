@@ -23,3 +23,11 @@
 - [x] Escrever testes para o sistema de créditos e autenticação
 - [x] Bug: scroll não funciona na página de chat dos agentes - usuário não consegue rolar para ver toda a conversa
 - [x] Adicionar overflow/scroll na sidebar de sessões do chat dos agentes
+- [ ] Implementar comunicação entre agentes: consultar histórico de sessões de outros agentes
+- [ ] Criar rota backend para buscar resumo/contexto de sessões anteriores de outros agentes
+- [ ] Injetar contexto de outros agentes no prompt do agente atual
+- [ ] Criar UI para vincular/importar sessões de outros agentes na conversa atual
+- [ ] Escrever testes para comunicação entre agentes
+- [x] Remover planos Editor e ADM da página de Planos comerciais
+- [x] Adicionar plano Empresarial com CTA de contato na página de Planos
+- [x] Criar aba exclusiva de monitoramento de consumo para ADM no painel Admin
