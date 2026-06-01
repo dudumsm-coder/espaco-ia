@@ -32,6 +32,7 @@ export interface ChatConversation {
 export type ProjectStatus =
   | "iniciacao"
   | "elicitacao"
+  | "re_elicitacao"
   | "analise"
   | "validacao"
   | "documentacao"

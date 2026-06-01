@@ -7,6 +7,7 @@ import enum
 class ProjectStatus(str, enum.Enum):
     iniciacao = "iniciacao"
     elicitacao = "elicitacao"
+    re_elicitacao = "re_elicitacao"
     analise = "analise"
     validacao = "validacao"
     documentacao = "documentacao"
@@ -43,6 +44,9 @@ class ProjetoRequisito(Base):
     contexto_operacional: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), default=ProjectStatus.iniciacao)
     ciclo_refinamento: Mapped[int] = mapped_column(Integer, default=0)
+    categorias_concluidas: Mapped[list | None] = mapped_column(JSON, default=list, nullable=True)
+    re_elicitacao_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    re_elicitacao_origem: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
