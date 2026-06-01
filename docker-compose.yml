@@ -27,7 +27,7 @@ services:
       ANTHROPIC_MODEL: claude-sonnet-4-6
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
-      FRONTEND_URL: http://localhost:3000
+      FRONTEND_URL: http://localhost:3001
     volumes:
       - ./backend:/app
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"

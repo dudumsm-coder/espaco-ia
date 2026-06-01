@@ -10,9 +10,13 @@ app = FastAPI(
     docs_url="/docs" if settings.APP_ENV != "production" else None,
 )
 
+_cors_origins = [settings.FRONTEND_URL]
+if settings.APP_ENV == "development":
+    _cors_origins += ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
