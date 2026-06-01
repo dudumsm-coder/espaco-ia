@@ -1,6 +1,13 @@
 import api from "@/lib/api";
 import type { AgenteMessageResponse } from "@/types";
 
+export const AGENT_COSTS = {
+  elicitador: 5,
+  analisador: 60,
+  validador: 40,
+  documentador: 50,
+} as const;
+
 export const agentesService = {
   chatElicitador: (projeto_id: number, content: string) =>
     api.post<AgenteMessageResponse>("/agentes/elicitador/chat", { projeto_id, content }).then(r => r.data),

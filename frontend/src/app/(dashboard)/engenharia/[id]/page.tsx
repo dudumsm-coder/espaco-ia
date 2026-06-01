@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { engenhariaService } from "@/services/engenharia.service";
-import { agentesService } from "@/services/agentes.service";
+import { agentesService, AGENT_COSTS } from "@/services/agentes.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,17 +64,21 @@ export default function ProjetoDetalhePage({ params }: { params: { id: string } 
     onSuccess: () => qc.invalidateQueries({ queryKey: ["projeto", projetoId] }),
   });
 
+  const invalidateCredits = () => qc.invalidateQueries({ queryKey: ["credits-balance"] });
+
   const analisar = useMutation({
     mutationFn: (feedback = "") => agentesService.analisar(projetoId, feedback),
     onSuccess: (res) => {
       const ctx = res.context as Record<string, unknown>;
+      const creditMsg = `_(−${ctx.credits_used} créditos | saldo: ${ctx.credits_remaining})_`;
       setMessages(prev => [...prev, {
         role: "assistant",
         content: ctx.necessita_elicitacao
           ? res.reply
-          : `**Análise concluída** — ${ctx.requisitos_count} requisitos. Score: ${((ctx.score_geral as number) * 100).toFixed(0)}%\n\n${res.reply}`,
+          : `**Análise concluída** — ${ctx.requisitos_count} requisitos. Score: ${((ctx.score_geral as number) * 100).toFixed(0)}%\n${creditMsg}\n\n${res.reply}`,
         isAlert: !!ctx.necessita_elicitacao,
       }]);
+      invalidateCredits();
       qc.invalidateQueries({ queryKey: ["projeto", projetoId] });
       qc.invalidateQueries({ queryKey: ["requisitos", projetoId] });
     },
@@ -84,25 +88,29 @@ export default function ProjetoDetalhePage({ params }: { params: { id: string } 
     mutationFn: () => agentesService.validar(projetoId),
     onSuccess: (res) => {
       const ctx = res.context as Record<string, unknown>;
+      const creditMsg = `_(−${ctx.credits_used} créditos | saldo: ${ctx.credits_remaining})_`;
       if (ctx.necessita_elicitacao) {
         setMessages(prev => [...prev, { role: "assistant", content: res.reply, isAlert: true }]);
+        invalidateCredits();
         qc.invalidateQueries({ queryKey: ["projeto", projetoId] });
         return;
       }
       if (ctx.deve_reanalisar) {
-        setMessages(prev => [...prev, { role: "assistant", content: `**Ajustando requisitos** (ciclo ${ctx.ciclo}/3)...\n\n${res.reply}` }]);
+        setMessages(prev => [...prev, { role: "assistant", content: `**Ajustando requisitos** (ciclo ${ctx.ciclo}/3)...\n${creditMsg}\n\n${res.reply}` }]);
         analisar.mutate(ctx.feedback as string);
       } else {
-        setMessages(prev => [...prev, { role: "assistant", content: ctx.aprovado ? `**Aprovado ✓** Score: ${((ctx.score_geral as number)*100).toFixed(0)}%\n\n${res.reply}` : `**Validação concluída**\n\n${res.reply}` }]);
+        setMessages(prev => [...prev, { role: "assistant", content: (ctx.aprovado ? `**Aprovado ✓** Score: ${((ctx.score_geral as number)*100).toFixed(0)}%` : `**Validação concluída**`) + `\n${creditMsg}\n\n${res.reply}` }]);
       }
+      invalidateCredits();
       qc.invalidateQueries({ queryKey: ["projeto", projetoId] });
     },
   });
 
   const gerarArtefato = useMutation({
     mutationFn: (tipo: "srs" | "matriz" | "arvore" | "icd") => agentesService.gerarArtefato(projetoId, tipo),
-    onSuccess: (_, tipo) => {
-      setMessages(prev => [...prev, { role: "assistant", content: `Documento **${tipo.toUpperCase()}** gerado. Use o botão ↓ para baixar.` }]);
+    onSuccess: (res: Record<string, unknown>, tipo) => {
+      setMessages(prev => [...prev, { role: "assistant", content: `Documento **${tipo.toUpperCase()}** gerado. _(−${res.credits_used} créditos | saldo: ${res.credits_remaining})_` }]);
+      invalidateCredits();
       qc.invalidateQueries({ queryKey: ["artefatos", projetoId] });
       qc.invalidateQueries({ queryKey: ["projeto", projetoId] });
     },
@@ -123,8 +131,11 @@ export default function ProjetoDetalhePage({ params }: { params: { id: string } 
     setChatLoading(true);
     try {
       const res = await agentesService.chatElicitador(projetoId, content);
+      const ctx = res.context as Record<string, unknown>;
       setMessages(prev => [...prev, { role: "assistant", content: res.reply }]);
+      invalidateCredits();
       qc.invalidateQueries({ queryKey: ["projeto", projetoId] });
+      void ctx;
     } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "Erro. Tente novamente." }]);
     } finally {
@@ -288,7 +299,7 @@ export default function ProjetoDetalhePage({ params }: { params: { id: string } 
               <CardContent>
                 <p className="text-xs text-muted-foreground mb-3">Converte necessidades de negócio em requisitos técnicos formais</p>
                 <Button className="w-full" onClick={() => analisar.mutate()} disabled={analisar.isPending}>
-                  {analisar.isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Analisando...</> : "Analisar Requisitos"}
+                  {analisar.isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Analisando...</> : <>Analisar Requisitos <span className="ml-auto text-xs opacity-70">−{AGENT_COSTS.analisador} créditos</span></>}
                 </Button>
               </CardContent>
             </Card>
@@ -300,7 +311,7 @@ export default function ProjetoDetalhePage({ params }: { params: { id: string } 
               <CardContent>
                 <p className="text-xs text-muted-foreground mb-3">Verifica qualidade e completude dos requisitos técnicos</p>
                 <Button className="w-full" onClick={() => validar.mutate()} disabled={validar.isPending || analisar.isPending}>
-                  {(validar.isPending || analisar.isPending) ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Validando...</> : "Validar Requisitos"}
+                  {(validar.isPending || analisar.isPending) ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Validando...</> : <>Validar Requisitos <span className="ml-auto text-xs opacity-70">−{AGENT_COSTS.validador} créditos</span></>}
                 </Button>
               </CardContent>
             </Card>

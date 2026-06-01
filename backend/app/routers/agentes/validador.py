@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.config import settings
+from app.services.credits import deduct_credits
 from app.models.requisito import ProjetoRequisito, Requisito, ProjectStatus, RequisitoStatus
 from app.schemas.requisito import AgenteMessageResponse
 from app.services.llm import invoke_llm_json
@@ -84,6 +86,9 @@ async def validar(
         f"[{r.codigo}] {r.tipo} | Prioridade: {r.prioridade}\n  {r.descricao}"
         for r in requisitos
     ])
+    await deduct_credits(db, current_user, settings.VALIDADOR_CREDIT_COST,
+        f"Validador — ciclo {projeto.ciclo_refinamento + 1}")
+
     msgs = [{
         "role": "user",
         "content": (
@@ -108,6 +113,8 @@ async def validar(
                 "necessita_elicitacao": True,
                 "motivo": data["motivo_usuario"],
                 "origem": "validador",
+                "credits_remaining": current_user.credits,
+                "credits_used": settings.VALIDADOR_CREDIT_COST,
             },
         )
 
@@ -137,5 +144,7 @@ async def validar(
             "feedback": feedback,
             "deve_reanalisar": not aprovado and projeto.status == ProjectStatus.analise,
             "max_ciclos_atingido": projeto.ciclo_refinamento >= MAX_CICLOS,
+            "credits_remaining": current_user.credits,
+            "credits_used": settings.VALIDADOR_CREDIT_COST,
         },
     )

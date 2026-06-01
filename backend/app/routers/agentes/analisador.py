@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.config import settings
+from app.services.credits import deduct_credits
 from app.models.requisito import (
     ProjetoRequisito, Necessidade, Requisito, SessaoChat,
     ProjectStatus, RequisitoStatus,
@@ -81,8 +83,13 @@ async def analisar(
         for n in necessidades
     ])
 
+    is_refinamento = projeto.ciclo_refinamento > 0 and body.content
+    credit_cost = settings.ANALISADOR_CREDIT_COST if not is_refinamento else settings.ANALISADOR_CREDIT_COST // 2
+    await deduct_credits(db, current_user, credit_cost,
+        f"Analisador — {'refinamento ciclo ' + str(projeto.ciclo_refinamento) if is_refinamento else 'análise de requisitos'}")
+
     feedback_txt = f"\n\nFEEDBACK DO VALIDADOR (ciclo {projeto.ciclo_refinamento}):\n{body.content}" \
-        if projeto.ciclo_refinamento > 0 and body.content else ""
+        if is_refinamento else ""
 
     msgs = [{
         "role": "user",
@@ -112,6 +119,8 @@ async def analisar(
                 "motivo": data["motivo_usuario"],
                 "origem": "analisador",
                 "pontos_vagos": data.get("pontos_vagos", []),
+                "credits_remaining": current_user.credits,
+                "credits_used": credit_cost,
             },
         )
 
@@ -147,6 +156,8 @@ async def analisar(
             "score_geral": data.get("score_geral", 0),
             "pontos_atencao": data.get("pontos_atencao", []),
             "pode_validar": True,
+            "credits_remaining": current_user.credits,
+            "credits_used": credit_cost,
         },
     )
 

@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     FREE_CREDITS_MONTHLY: int = 15
     CHAT_CREDIT_COST: int = 10
     APPOINTMENT_CREDIT_COST: int = 50
+    ELICITADOR_CREDIT_COST: int = 5
+    ANALISADOR_CREDIT_COST: int = 60
+    VALIDADOR_CREDIT_COST: int = 40
+    DOCUMENTADOR_CREDIT_COST: int = 50
 
     FRONTEND_URL: str = "http://localhost:3000"
 

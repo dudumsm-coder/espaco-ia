@@ -3,12 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.config import settings
 from app.models.requisito import (
     ProjetoRequisito, Necessidade, SessaoChat,
     ProjectStatus, NecessidadeStatus,
 )
 from app.schemas.requisito import AgenteMessageRequest, AgenteMessageResponse
 from app.services.llm import invoke_llm
+from app.services.credits import deduct_credits
 import json
 import re
 
@@ -184,6 +186,7 @@ async def chat_elicitador(
         system = _build_system(projeto, categoria_atual)
 
     if body.content:
+        await deduct_credits(db, current_user, settings.ELICITADOR_CREDIT_COST, "Elicitador — mensagem ao consultor")
         sessao.transcript.append({"role": "user", "content": body.content})
 
     reply_raw = await invoke_llm(messages=sessao.transcript, system=system, max_tokens=1024)
@@ -230,6 +233,8 @@ async def chat_elicitador(
             "pode_avancar": todas_concluidas and total_nec >= 3,
             "is_re_elicitacao": is_re,
             "motivo_re_elicitacao": projeto.re_elicitacao_motivo,
+            "credits_remaining": current_user.credits,
+            "credits_used": settings.ELICITADOR_CREDIT_COST if body.content else 0,
         },
     )
 

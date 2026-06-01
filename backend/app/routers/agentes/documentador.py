@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.config import settings
+from app.services.credits import deduct_credits
 from app.models.requisito import (
     ProjetoRequisito, Requisito, Necessidade, Artefato,
     ProjectStatus, ArtifactType,
@@ -233,6 +235,9 @@ async def gerar_artefato(
     requisitos = req_result.scalars().all()
     necessidades = necessidades_result.scalars().all()
 
+    await deduct_credits(db, current_user, settings.DOCUMENTADOR_CREDIT_COST,
+        f"Documentador — geração de {body.tipo.value.upper()}")
+
     context = _build_context(projeto, necessidades, requisitos)
     system_map = {
         ArtifactType.srs: SYSTEM_SRS,
@@ -265,7 +270,7 @@ async def gerar_artefato(
         projeto.status = ProjectStatus.documentacao
 
     await db.commit()
-    return {"tipo": body.tipo, "conteudo": data, "markdown": markdown}
+    return {"tipo": body.tipo, "conteudo": data, "markdown": markdown, "credits_remaining": current_user.credits, "credits_used": settings.DOCUMENTADOR_CREDIT_COST}
 
 
 @router.get("/artefatos/{projeto_id}")
