@@ -1,23 +1,26 @@
 "use client";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import type { User } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Users, Zap, FolderOpen, Plus, Minus, Shield, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
+import { Users, Zap, FolderOpen, Plus, Minus, Shield, ChevronDown, ChevronUp, RefreshCw, BookOpen, Play, Eye, EyeOff } from "lucide-react";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
 
 interface Stats { total_users: number; total_admins: number; total_projetos: number; total_credits_distributed: number; total_credits_purchased: number; }
 interface Package { id: number; name: string; credits: number; price_brl: number; is_popular: boolean; active: boolean; stripe_price_id: string | null; }
 interface Transaction { id: number; type: string; amount: number; balance_after: number; description: string; created_at: string; }
+interface Article { id: number; title: string; slug: string; summary: string | null; tags: string | null; published: boolean; created_at: string; }
 
 const ROLE_LABEL: Record<string, string> = { user: "Usuário", admin: "Admin" };
 const TX_COLOR: Record<string, string> = { debit: "text-red-600", credit: "text-green-600", admin_adjust: "text-blue-600", free_grant: "text-violet-600" };
 
 export default function AdminPage() {
   const qc = useQueryClient();
+  const router = useRouter();
   const [expandedUser, setExpandedUser] = useState<number | null>(null);
   const [creditAdjust, setCreditAdjust] = useState<Record<number, string>>({});
   const [creditReason, setCreditReason] = useState<Record<number, string>>({});
@@ -27,6 +30,8 @@ export default function AdminPage() {
   const { data: stats } = useQuery<Stats>({ queryKey: ["admin-stats"], queryFn: () => api.get("/admin/stats").then(r => r.data) });
   const { data: users = [], isLoading } = useQuery<User[]>({ queryKey: ["admin-users"], queryFn: () => api.get("/admin/users").then(r => r.data) });
   const { data: packages = [] } = useQuery<Package[]>({ queryKey: ["admin-packages"], queryFn: () => api.get("/admin/packages").then(r => r.data) });
+  const { data: articles = [], isLoading: articlesLoading } = useQuery<Article[]>({ queryKey: ["admin-articles"], queryFn: () => api.get("/knowledge/all").then(r => r.data) });
+  const { data: blogStatus } = useQuery({ queryKey: ["blog-status"], queryFn: () => api.get("/cron/blog/status").then(r => r.data), refetchInterval: 5000 });
   const { data: transactions = [] } = useQuery<Transaction[]>({
     queryKey: ["admin-transactions", expandedUser],
     queryFn: () => api.get(`/admin/users/${expandedUser}/transactions`).then(r => r.data),
@@ -53,6 +58,16 @@ export default function AdminPage() {
   const togglePkg = useMutation({
     mutationFn: ({ id, active }: { id: number; active: boolean }) => api.patch(`/admin/packages/${id}`, { active }).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-packages"] }),
+  });
+
+  const triggerBlog = useMutation({
+    mutationFn: (published: boolean) => api.post(`/cron/blog?published=${published}`).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["blog-status"] }); qc.invalidateQueries({ queryKey: ["admin-articles"] }); },
+  });
+
+  const toggleArticle = useMutation({
+    mutationFn: ({ id, published }: { id: number; published: boolean }) => api.patch(`/knowledge/${id}`, { published }).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-articles"] }); qc.invalidateQueries({ queryKey: ["knowledge"] }); },
   });
 
   const handleAdjust = (userId: number, sign: 1 | -1) => {
@@ -284,6 +299,86 @@ export default function AdminPage() {
               <p className="text-sm text-muted-foreground col-span-4">Nenhum pacote criado. Clique em "Novo Pacote" para começar.</p>
             )}
           </div>
+        </CardContent>
+      </Card>
+      {/* Blog */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BookOpen className="h-4 w-4" /> Blog IA nos Negócios
+            </CardTitle>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => triggerBlog.mutate(false)}
+                disabled={triggerBlog.isPending || (blogStatus as Record<string,unknown>)?.status === "running"}
+              >
+                <Play className="h-3.5 w-3.5 mr-1" />
+                {(blogStatus as Record<string,unknown>)?.status === "running" ? "Gerando..." : "Gerar rascunho"}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => triggerBlog.mutate(true)}
+                disabled={triggerBlog.isPending || (blogStatus as Record<string,unknown>)?.status === "running"}
+              >
+                <Play className="h-3.5 w-3.5 mr-1" /> Gerar e publicar
+              </Button>
+            </div>
+          </div>
+          {blogStatus && (
+            <div className="text-xs text-muted-foreground mt-1">
+              Último agente: <strong>{(blogStatus as Record<string,unknown>).status as string}</strong>
+              {(blogStatus as Record<string,unknown>).title && <> — "{(blogStatus as Record<string,unknown>).title as string}"</>}
+              {(blogStatus as Record<string,unknown>).ran_at && <> · {formatDate((blogStatus as Record<string,unknown>).ran_at as string)}</>}
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          {articlesLoading ? (
+            <p className="text-sm text-muted-foreground p-4">Carregando artigos...</p>
+          ) : articles.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">
+              Nenhum artigo ainda. Clique em "Gerar rascunho" para criar o primeiro post.
+            </p>
+          ) : (
+            <div className="divide-y">
+              {(articles as Article[]).map(a => (
+                <div key={a.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{a.title}</p>
+                    <p className="text-xs text-muted-foreground">{formatDate(a.created_at)}</p>
+                  </div>
+                  <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full shrink-0",
+                    a.published ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
+                  )}>
+                    {a.published ? "Publicado" : "Rascunho"}
+                  </span>
+                  <div className="flex gap-1 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2"
+                      onClick={() => toggleArticle.mutate({ id: a.id, published: !a.published })}
+                      title={a.published ? "Despublicar" : "Publicar"}
+                    >
+                      {a.published ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2"
+                      onClick={() => router.push(`/conhecimento/${a.slug}`)}
+                      title="Ver artigo"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5 rotate-[-90deg]" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

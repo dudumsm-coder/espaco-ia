@@ -20,6 +20,8 @@
     "@hookform/resolvers": "^3.9.1",
     "zustand": "^5.0.2",
     "lucide-react": "^0.453.0",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.5.5",
