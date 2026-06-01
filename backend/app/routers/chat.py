@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.chat import ChatConversation, ChatMessage, MessageRole
@@ -77,18 +77,20 @@ async def send_message(
     current_user.credits -= settings.CHAT_CREDIT_COST
     await db.commit()
 
+    conv_id = conv.id
+    user_credits = current_user.credits
+
     async def generate():
         full_reply = ""
         async for chunk in stream_llm(messages=history, system=SYSTEM_PROMPT):
             full_reply += chunk
             yield f"data: {json.dumps({'chunk': chunk})}\n\n"
 
-        assistant_msg = ChatMessage(conversation_id=conv.id, role=MessageRole.assistant, content=full_reply)
         async with AsyncSessionLocal() as session:
+            assistant_msg = ChatMessage(conversation_id=conv_id, role=MessageRole.assistant, content=full_reply)
             session.add(assistant_msg)
             await session.commit()
 
-        yield f"data: {json.dumps({'done': True, 'conversation_id': conv.id, 'credits': current_user.credits})}\n\n"
+        yield f"data: {json.dumps({'done': True, 'conversation_id': conv_id, 'credits': user_credits})}\n\n"
 
-    from app.core.database import AsyncSessionLocal
     return StreamingResponse(generate(), media_type="text/event-stream")

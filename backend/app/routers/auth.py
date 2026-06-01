@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
+from app.core.security import (
+    hash_password, verify_password, create_access_token,
+    create_refresh_token, decode_token, get_current_user, oauth2_scheme,
+)
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, RefreshRequest
 from app.schemas.user import UserResponse
@@ -48,7 +51,8 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(db: AsyncSession = Depends(get_db), token: str = Depends(__import__("app.core.security", fromlist=["oauth2_scheme"]).oauth2_scheme)):
-    from app.core.security import get_current_user
-    user = await get_current_user(token, db)
-    return user
+async def me(
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    return await get_current_user(token, db)
