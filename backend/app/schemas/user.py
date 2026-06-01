@@ -1,22 +1,18 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from datetime import datetime
 from app.models.user import UserRole
 
 
 class UserResponse(BaseModel):
     id: int
+    clerk_id: str
     name: str
-    email: EmailStr
+    email: str | None
     role: UserRole
     credits: int
     created_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class UserUpdate(BaseModel):
-    name: str | None = None
-    email: EmailStr | None = None
 
 
 class AdminUserUpdate(BaseModel):

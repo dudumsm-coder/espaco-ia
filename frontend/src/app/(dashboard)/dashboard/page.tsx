@@ -1,5 +1,5 @@
 "use client";
-import { useAuthStore } from "@/store/auth.store";
+import { useUser } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { creditsService } from "@/services/credits.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import Link from "next/link";
 import { MessageSquare, FileText, Calendar, CreditCard, Zap } from "lucide-react";
 
 export default function DashboardPage() {
-  const { user } = useAuthStore();
+  const { user } = useUser();
   const { data: balance } = useQuery({ queryKey: ["credits-balance"], queryFn: creditsService.getBalance });
 
   const cards = [
@@ -21,7 +21,7 @@ export default function DashboardPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">Olá, {user?.name?.split(" ")[0]} 👋</h1>
+        <h1 className="text-3xl font-bold">Olá, {user?.firstName ?? "usuário"} 👋</h1>
         <p className="text-muted-foreground mt-1">Bem-vindo ao Espaço IA</p>
       </div>
 
@@ -31,7 +31,7 @@ export default function DashboardPage() {
         </div>
         <div>
           <p className="text-sm text-muted-foreground">Créditos disponíveis</p>
-          <p className="text-3xl font-bold">{balance?.credits ?? user?.credits ?? 0}</p>
+          <p className="text-3xl font-bold">{balance?.credits ?? 0}</p>
         </div>
         <Link href="/creditos" className="ml-auto">
           <Button variant="outline" size="sm">Comprar mais</Button>

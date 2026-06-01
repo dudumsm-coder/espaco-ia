@@ -1,21 +1,23 @@
 "use client";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/store/auth.store";
+import { useUser, useClerk } from "@clerk/nextjs";
+import { useQuery } from "@tanstack/react-query";
 import { authService } from "@/services/auth.service";
 
 export function useAuth() {
-  const { user, setUser, logout, isAuthenticated } = useAuthStore();
-  const router = useRouter();
+  const { user: clerkUser, isLoaded, isSignedIn } = useUser();
+  const { signOut } = useClerk();
 
-  useEffect(() => {
-    if (isAuthenticated() && !user) {
-      authService.me().then(setUser).catch(() => {
-        logout();
-        router.push("/login");
-      });
-    }
-  }, [isAuthenticated, user, setUser, logout, router]);
+  const { data: dbUser } = useQuery({
+    queryKey: ["me", clerkUser?.id],
+    queryFn: authService.me,
+    enabled: !!isSignedIn,
+  });
 
-  return { user, logout, isAuthenticated: isAuthenticated() };
+  return {
+    user: dbUser ?? null,
+    clerkUser,
+    isLoaded,
+    isAuthenticated: !!isSignedIn,
+    logout: () => signOut({ redirectUrl: "/" }),
+  };
 }

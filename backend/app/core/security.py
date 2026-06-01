@@ -1,57 +1,62 @@
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+import time
+import httpx
+from jose import jwt, JWTError
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+bearer_scheme = HTTPBearer()
 
-ALGORITHM = "HS256"
-
-
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+_jwks_cache: dict = {"keys": [], "fetched_at": 0}
+_JWKS_TTL = 3600
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+async def _get_jwks() -> list:
+    now = time.time()
+    if _jwks_cache["keys"] and now - _jwks_cache["fetched_at"] < _JWKS_TTL:
+        return _jwks_cache["keys"]
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(settings.CLERK_JWKS_URL)
+        resp.raise_for_status()
+        data = resp.json()
+    _jwks_cache["keys"] = data["keys"]
+    _jwks_cache["fetched_at"] = now
+    return _jwks_cache["keys"]
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire, "type": "access"})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
-
-
-def create_refresh_token(data: dict) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
-
-
-def decode_token(token: str) -> dict:
+async def verify_clerk_token(token: str) -> dict:
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido ou expirado")
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid")
+        keys = await _get_jwks()
+        key = next((k for k in keys if k["kid"] == kid), None)
+        if not key:
+            _jwks_cache["fetched_at"] = 0
+            keys = await _get_jwks()
+            key = next((k for k in keys if k["kid"] == kid), None)
+        if not key:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Chave JWT não encontrada")
+        payload = jwt.decode(token, key, algorithms=["RS256"], options={"verify_aud": False})
+        return payload
+    except JWTError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Token inválido: {e}")
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
-    payload = decode_token(token)
-    user_id: str = payload.get("sub")
-    if not user_id:
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    payload = await verify_clerk_token(credentials.credentials)
+    clerk_id: str = payload.get("sub")
+    if not clerk_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token sem subject")
+
     from app.repositories.user_repo import UserRepository
-    user = await UserRepository.get_by_id(db, int(user_id))
+    user = await UserRepository.get_by_clerk_id(db, clerk_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado")
+        user = await UserRepository.create_from_clerk(db, clerk_id, settings.CLERK_SECRET_KEY)
     return user
 
 

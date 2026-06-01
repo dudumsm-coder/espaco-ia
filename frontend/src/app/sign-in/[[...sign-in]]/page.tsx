@@ -1,9 +1,9 @@
-import { SignUp } from "@clerk/nextjs";
+import { SignIn } from "@clerk/nextjs";
 
-export default function RegisterPage() {
+export default function SignInPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-purple-50">
-      <SignUp routing="hash" afterSignUpUrl="/dashboard" />
+      <SignIn />
     </div>
   );
 }
