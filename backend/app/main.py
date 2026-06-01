@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import auth, chat, credits, admin
-from app.routers.agentes import orchestrator, elicitador
+from app.routers import auth, chat, credits, admin, knowledge, appointments
+from app.routers.agentes import orchestrator, elicitador, analisador, validador, documentador
 
 app = FastAPI(
     title="Espaço IA API",
@@ -26,8 +26,13 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(credits.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(knowledge.router, prefix="/api/v1")
+app.include_router(appointments.router, prefix="/api/v1")
 app.include_router(orchestrator.router, prefix="/api/v1")
 app.include_router(elicitador.router, prefix="/api/v1/agentes")
+app.include_router(analisador.router, prefix="/api/v1/agentes")
+app.include_router(validador.router, prefix="/api/v1/agentes")
+app.include_router(documentador.router, prefix="/api/v1/agentes")
 
 
 @app.get("/ping")

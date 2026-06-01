@@ -1,7 +1,8 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
+import { useQueryClient } from "@tanstack/react-query";
 import { chatService } from "@/services/chat.service";
-import { useAuthStore } from "@/store/auth.store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, Bot, User } from "lucide-react";
@@ -17,7 +18,8 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<number | null>(null);
-  const { setUser, user } = useAuthStore();
+  const { user } = useUser();
+  const qc = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -28,10 +30,9 @@ export default function ChatPage() {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content }]);
     setLoading(true);
-
-    let reply = "";
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
+    let reply = "";
     try {
       await chatService.sendMessage(
         content,
@@ -44,9 +45,9 @@ export default function ChatPage() {
             return updated;
           });
         },
-        ({ conversation_id, credits }) => {
+        ({ conversation_id }) => {
           setConversationId(conversation_id);
-          if (user) setUser({ ...user, credits });
+          qc.invalidateQueries({ queryKey: ["credits-balance"] });
         }
       );
     } catch {
